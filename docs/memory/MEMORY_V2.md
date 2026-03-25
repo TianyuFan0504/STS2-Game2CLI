@@ -51,6 +51,26 @@ V2 依赖 V1 已经成立：
 - embedding 检索
 - 云端数据库
 
+### 3.3 当前实现状态
+
+当前仓库已经开始落地 V2 的第一阶段：
+
+- 局结束后会生成 `turns/`、`battles/`、`rewards/`、`derived/`
+- `derived/` 当前会先写：
+  - `route_timeline.json`
+  - `resource_timeline.json`
+  - `run_tags.json`
+- `memory/archive/index.sqlite` 当前已包含：
+  - `runs`
+  - `run_tags`
+  - `run_battles`
+
+当前限制：
+
+- `turns/` 主要基于 V1 ledger 和 turn markers 重建
+- `battles/` / `rewards/` 目前是 Phase-1 摘要，字段还不完整
+- 还没有 `run_cards` / `run_relics`
+
 ## 4. 目录结构
 
 V2 目录建议：

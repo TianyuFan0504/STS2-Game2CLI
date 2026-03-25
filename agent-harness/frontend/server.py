@@ -39,6 +39,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from memory_v1 import MemoryV1Store, summarize_state  # noqa: E402
+from sts2_commands import extract_sts2_segments, has_sts2_subcommand, normalize_sts2_command  # noqa: E402
 from sts2cli.http_client import ApiError, Sts2RawClient  # noqa: E402
 from sts2cli.state_adapter import normalize_state  # noqa: E402
 
@@ -116,48 +117,6 @@ def extract_bash_command(data: dict[str, Any] | None) -> str | None:
         if isinstance(command, str) and command.strip():
             return command.strip()
     return None
-
-
-def normalize_sts2_command(command: str | None) -> str | None:
-    if not command:
-        return None
-    for raw_line in command.splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        if line == "sts2" or line.startswith("sts2 "):
-            return line
-        match = re.search(r"(^|[^A-Za-z0-9_.\-/])(?P<cmd>sts2(?:\s.*)?)$", line)
-        if match:
-            return match.group("cmd").strip()
-    return None
-
-
-def extract_sts2_segments(command: str | None) -> list[str]:
-    if not command:
-        return []
-    segments: list[str] = []
-    for raw_line in command.splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        for segment in re.split(r"\s*(?:&&|\|\||;)\s*", line):
-            segment = segment.strip()
-            if not segment:
-                continue
-            if segment == "sts2" or segment.startswith("sts2 "):
-                segments.append(segment)
-                continue
-            match = re.search(r"(^|[ /])sts2(?P<rest>\s.*)?$", segment)
-            if match:
-                rest = match.group("rest") or ""
-                segments.append(f"sts2{rest}".strip())
-    return segments
-
-
-def has_sts2_subcommand(command: str | None, subcommand: str) -> bool:
-    prefix = f"sts2 {subcommand}"
-    return any(segment == prefix or segment.startswith(f"{prefix} ") for segment in extract_sts2_segments(command))
 
 
 def extract_json_dicts(text: str) -> list[dict[str, Any]]:
@@ -553,6 +512,7 @@ class AgentController:
             self._tracked_state_summary = summarize_state(initial_state)
         if initial_state is not None:
             self._memory.record_state(initial_state, raw_state=self._last_raw_state, source="iteration_start")
+            self._memory.prepare_turn(iteration, mode=mode, state=initial_state)
         active_run_before = self._memory.get_active_run_info()
         last_run_before = self._memory.get_last_run_info()
 
