@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from memory_v2 import MemoryV2Archive
+
 
 def summarize_state(state: dict[str, Any] | None) -> dict[str, Any] | None:
     if not state:
@@ -51,11 +53,13 @@ class MemoryV1Store:
         self.latest_link = root / "latest"
         self.root.mkdir(parents=True, exist_ok=True)
         self.runs_root.mkdir(parents=True, exist_ok=True)
+        self.v2 = MemoryV2Archive(root)
         self.active: RunMemory | None = None
         self.last_run_dir: Path | None = None
         self.pending_new_run: dict[str, Any] | None = None
         self.pending_run_command: dict[str, Any] | None = None
         self._restore_from_disk()
+        self.v2.sync_finished_runs()
 
     def _restore_from_disk(self) -> None:
         run_dir = self._resolve_latest_run_dir()
@@ -902,13 +906,21 @@ class MemoryV1Store:
     def _finalize_run(self, result: str) -> None:
         if self.active is None:
             return
+        run_dir = self.active.run_dir
         self.active.session_data["status"] = result if result not in {"", "unknown"} else "finished"
         self.active.session_data["ended_at"] = self._timestamp_iso_ms()
         self.active.session_data["result"] = result
         self._append_event("run_ended", f"Run ended: {result}", {"result": result})
         self._write_summary()
         self._write_session()
-        self.last_run_dir = self.active.run_dir
+        try:
+            self.v2.materialize_run(run_dir)
+            self.active.session_data["v2_materialized_at"] = self._timestamp_iso_ms()
+            self.active.session_data["v2_materialize_error"] = None
+        except Exception as exc:  # noqa: BLE001
+            self.active.session_data["v2_materialize_error"] = str(exc)
+        self._write_session()
+        self.last_run_dir = run_dir
         self.active = None
 
     def _menu_keeps_run_active(self, state: dict[str, Any] | None) -> bool:
