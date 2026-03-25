@@ -10,3 +10,7 @@ sts2 = "sts2cli.cli:main"
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["sts2cli"]
+py-modules = ["sts2"]

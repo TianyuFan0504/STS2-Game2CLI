@@ -164,6 +164,23 @@ def resolve_pi_bin(env: dict[str, str]) -> str:
     return resolved or candidate
 
 
+def resolve_sts2_bin(env: dict[str, str]) -> str:
+    candidate = env.get("STS2_BIN", "")
+    if candidate:
+        candidate_path = Path(candidate).expanduser()
+        if candidate_path.is_file() and os.access(candidate_path, os.X_OK):
+            return str(candidate_path)
+        resolved = shutil.which(candidate, path=env.get("PATH"))
+        if resolved:
+            return resolved
+
+    if STS2_BIN.is_file() and os.access(STS2_BIN, os.X_OK):
+        return str(STS2_BIN)
+
+    resolved = shutil.which("sts2", path=env.get("PATH"))
+    return resolved or str(STS2_BIN)
+
+
 @dataclass
 class ParsedPiEvent:
     kind: str
@@ -297,6 +314,7 @@ class AgentController:
         self._recent_commands: deque[str] = deque(maxlen=100)
         self._current_iteration: int | None = None
         self._tracked_state_summary: dict[str, Any] | None = None
+        self._last_reported_sts2_bin: str | None = None
         self._memory = MemoryV1Store(ROOT / "memory")
 
     def snapshot(self) -> dict[str, Any]:
@@ -495,6 +513,10 @@ class AgentController:
 
     def _run_one_iteration(self, iteration: int, mode: str) -> int:
         env = self._build_runtime_env()
+        sts2_bin = env.get("STS2_BIN", "")
+        if sts2_bin and sts2_bin != self._last_reported_sts2_bin:
+            self._events.append("runner", f"Resolved sts2: {sts2_bin}", {"sts2_bin": sts2_bin})
+            self._last_reported_sts2_bin = sts2_bin
         pi_bin = resolve_pi_bin(env)
         if not os.path.isfile(pi_bin) or not os.access(pi_bin, os.X_OK):
             self._last_error = (
@@ -791,8 +813,13 @@ class AgentController:
     def _build_runtime_env(self) -> dict[str, str]:
         env = os.environ.copy()
         env.update(load_env_file(ENV_FILE))
-        env["PATH"] = f"/opt/homebrew/bin:{env.get('PATH', '')}"
+        path_entries = [str(ROOT), "/opt/homebrew/bin"]
+        existing_path = env.get("PATH", "")
+        if existing_path:
+            path_entries.append(existing_path)
+        env["PATH"] = ":".join(path_entries)
         env["STS2CLI_ROOT"] = str(ROOT)
+        env["STS2_BIN"] = resolve_sts2_bin(env)
         env["PI_CODING_AGENT_DIR"] = env.get("PI_CODING_AGENT_DIR", str(ROOT / ".agents" / "pi-home"))
         Path(env["PI_CODING_AGENT_DIR"]).mkdir(parents=True, exist_ok=True)
         self._write_models_json_override(env)

@@ -105,6 +105,14 @@ runner 不通过 `npx` 临时下载，也不再走 `pi-mono` 的源码入口。
 
 这样可以在项目内固定 `pi` 版本，同时保留当前 `STS2CLI/` 工作目录、skill 路径和日志布局。
 
+`sts2` 的解析顺序现在是：
+
+1. 显式设置的 `STS2_BIN`
+2. 仓库根目录下的 repo-local `STS2CLI/sts2`
+3. 当前 `PATH` 里的 `sts2`
+
+同时 runner 会把仓库根目录加入 `PATH`，所以默认情况下不需要先手工全局安装 `sts2`，repo 内置 launcher 也能被 agent 直接调用。
+
 runner 还会把 `pi` 的 `json` 事件流转成可读日志：
 
 - 终端里实时显示文本输出和工具调用

@@ -50,11 +50,15 @@ python3 -m pip install -e .
 
 安装后会得到 `sts2` 命令。
 
+同时也会暴露 Python 模块入口，所以安装后 `python3 -m sts2 --help` 也可以作为兼容兜底方式使用。
+
 如果你只是想在仓库内本地使用，也可以直接运行根目录下的 repo-local launcher：
 
 ```bash
 ./sts2 --help
 ```
+
+前端控制服务和 `pi-agent` runner 现在也会把仓库根目录加入 `PATH`，所以即使你没有全局安装 `sts2`，agent 运行时也能把 repo 内置的 `./sts2` 当成 `sts2` 来调用。
 
 ### 2. 构建桥接插件
 
@@ -87,7 +91,32 @@ STS2_GAME_DATA_DIR="/path/to/data_sts2_macos_arm64" ./build.sh
 - `GodotSharp.dll`
 - `0Harmony.dll`
 
-### 3. 安装桥接插件到游戏
+### 3. 安装 CLI 启动器
+
+```bash
+cd bridge/install
+./install_cli.sh
+```
+
+这个脚本会把仓库根目录里的 repo-local launcher：
+
+```text
+<repo_root>/sts2
+```
+
+链接到默认目标：
+
+```text
+/opt/homebrew/bin/sts2
+```
+
+如果你想指定别的目标路径：
+
+```bash
+./install_cli.sh "/your/bin/sts2"
+```
+
+### 4. 安装桥接插件到游戏
 
 ```bash
 cd bridge/install
@@ -113,7 +142,7 @@ cd bridge/install
 <game_install>/SlayTheSpire2.app/Contents/MacOS/mods/STS2_Bridge/STS2_Bridge.json
 ```
 
-### 4. 在游戏里启用插件
+### 5. 在游戏里启用插件
 
 启动游戏后，确认 `STS2_Bridge` 已加载并启用。启用成功后，插件会监听：
 
@@ -128,7 +157,7 @@ CLI 默认使用：
 http://localhost:15526/api/v1/singleplayer
 ```
 
-### 5. 验证安装
+### 6. 验证安装
 
 ```bash
 sts2 --help

@@ -63,6 +63,20 @@ cd /Users/tianyufan/Desktop/workspace/Slay_the_Spire/STS2CLI/bridge/install
 /opt/homebrew/bin/sts2
 ```
 
+实际链接源是仓库根目录下的 repo-local launcher：
+
+```text
+STS2CLI/sts2
+```
+
+如果你不想创建全局链接，也可以直接在仓库根目录运行：
+
+```bash
+./sts2 --help
+```
+
+前端控制服务和 `pi-agent` runner 也会自动把仓库根目录加入 `PATH`，所以 agent 运行时可以直接把这个 repo-local launcher 当成 `sts2` 使用。
+
 如果你要改目标路径：
 
 ```bash
@@ -73,6 +87,7 @@ cd /Users/tianyufan/Desktop/workspace/Slay_the_Spire/STS2CLI/bridge/install
 
 ```bash
 sts2 --help
+python3 -m sts2 --help
 sts2 state
 ```
 

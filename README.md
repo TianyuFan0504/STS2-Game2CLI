@@ -52,11 +52,15 @@ python3 -m pip install -e .
 
 This installs the `sts2` command.
 
+The package also exposes a Python module entrypoint, so `python3 -m sts2 --help` works as a compatibility fallback after installation.
+
 If you only want to use the repo-local launcher, you can also run:
 
 ```bash
 ./sts2 --help
 ```
+
+The frontend server and `pi-agent` runner also prepend the repository root to `PATH`, so the checked-in repo-local launcher can still be resolved as `sts2` during agent runs even if you have not linked it globally.
 
 ### 2. Build the bridge mod
 
@@ -89,7 +93,32 @@ The target directory must contain at least:
 - `GodotSharp.dll`
 - `0Harmony.dll`
 
-### 3. Install the bridge mod into the game
+### 3. Install the CLI launcher
+
+```bash
+cd bridge/install
+./install_cli.sh
+```
+
+This links the checked-in repo-local launcher from the repository root:
+
+```text
+<repo_root>/sts2
+```
+
+By default the symlink target is:
+
+```text
+/opt/homebrew/bin/sts2
+```
+
+If you want a different target path, pass it explicitly:
+
+```bash
+./install_cli.sh "/your/bin/sts2"
+```
+
+### 4. Install the bridge mod into the game
 
 ```bash
 cd bridge/install
@@ -115,7 +144,7 @@ After installation, the game directory should contain:
 <game_install>/SlayTheSpire2.app/Contents/MacOS/mods/STS2_Bridge/STS2_Bridge.json
 ```
 
-### 4. Enable the mod in game
+### 5. Enable the mod in game
 
 Launch the game and make sure `STS2_Bridge` is loaded and enabled. Once enabled, the mod listens on:
 
@@ -130,7 +159,7 @@ The CLI uses this endpoint by default:
 http://localhost:15526/api/v1/singleplayer
 ```
 
-### 5. Verify the setup
+### 6. Verify the setup
 
 ```bash
 sts2 --help

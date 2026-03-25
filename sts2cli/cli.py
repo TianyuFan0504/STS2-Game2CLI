@@ -11,7 +11,10 @@ from .state_adapter import normalize_state
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="CLI adapter for controlling the real STS2 game via the local bridge plugin.")
+    parser = argparse.ArgumentParser(
+        prog="sts2",
+        description="CLI adapter for controlling the real STS2 game via the local bridge plugin.",
+    )
     parser.add_argument("--base-url", default="http://localhost:15526", help="Local bridge API base URL")
     parser.add_argument("--timeout", type=float, default=10.0, help="HTTP timeout in seconds")
 
