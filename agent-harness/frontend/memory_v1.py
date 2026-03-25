@@ -260,7 +260,7 @@ class MemoryV1Store:
         previous_state = self.active.latest_state
         self.active.latest_summary = summary
         self.active.latest_state = state
-        self._update_session_from_summary(summary, state=state)
+        self._update_session_from_summary(summary, state=state, source=source)
         self._write_state_snapshot(state, raw_state, summary)
 
         if previous_summary is None:
@@ -281,12 +281,19 @@ class MemoryV1Store:
 
         self._write_summary()
 
-        if (
-            summary.get("decision") == "menu"
-            and previous_summary.get("decision") != "menu"
-            and not self._menu_keeps_run_active(state)
+        if self._should_finalize_on_menu_state(
+            previous_summary=previous_summary,
+            previous_state=previous_state,
+            current_summary=summary,
+            current_state=state,
         ):
-            result = self._infer_result(previous_summary, previous_state=previous_state, session=self.active.session_data)
+            result = self._infer_result(
+                summary,
+                current_state=state,
+                previous_summary=previous_summary,
+                previous_state=previous_state,
+                session=self.active.session_data,
+            )
             self._finalize_run(result)
 
     def record_command(self, command: str, *, result: Any | None = None, source: str = "agent") -> None:
@@ -296,6 +303,9 @@ class MemoryV1Store:
         if not clean:
             return
         self.active.recent_commands.append(clean)
+        self.active.session_data["last_command"] = clean
+        self.active.session_data["last_command_source"] = source
+        self.active.session_data["last_command_at"] = self._timestamp_iso_ms()
         payload: dict[str, Any] = {"command": clean, "source": source}
         if result is not None:
             payload["result"] = result
@@ -397,8 +407,14 @@ class MemoryV1Store:
                 "latest_seq_id": 0,
                 "latest_event_id": None,
                 "latest_agent_seq_id": 0,
+                "latest_decision": summary.get("decision"),
+                "latest_state_type": summary.get("type"),
                 "has_seen_non_menu_state": prime_summary and summary.get("decision") != "menu",
                 "last_non_menu_decision": summary.get("decision") if summary.get("decision") not in {None, "menu"} else None,
+                "last_state_source": None,
+                "last_command": None,
+                "last_command_source": None,
+                "last_command_at": None,
                 "route_history": [],
             },
         )
@@ -590,6 +606,8 @@ class MemoryV1Store:
             "# Run Summary",
             "",
             f"- Run ID: {self.active.run_id}",
+            f"- Status: {session.get('status') if session.get('status') is not None else '-'}",
+            f"- Result: {session.get('result') if session.get('result') is not None else '-'}",
             f"- Character: {character if character is not None else '-'}",
             f"- Ascension: {ascension if ascension is not None else '-'}",
             f"- Act: {act if act is not None else '-'}",
@@ -814,6 +832,8 @@ class MemoryV1Store:
 
         if decision == "game_over":
             lines.append("- Game over screen is active.")
+            lines.append(f"- Can Return To Main Menu: {state.get('can_return_to_main_menu', False)}")
+            lines.append(f"- Can Continue: {state.get('can_continue', False)}")
             options = state.get("options") if isinstance(state.get("options"), list) else []
             if options:
                 lines.append("- Options:")
@@ -834,10 +854,20 @@ class MemoryV1Store:
 
         return ["- (no decision-specific summary available)"]
 
-    def _update_session_from_summary(self, summary: dict[str, Any], *, state: dict[str, Any] | None = None) -> None:
+    def _update_session_from_summary(
+        self,
+        summary: dict[str, Any],
+        *,
+        state: dict[str, Any] | None = None,
+        source: str | None = None,
+    ) -> None:
         if self.active is None:
             return
         session = self.active.session_data
+        session["latest_decision"] = summary.get("decision")
+        session["latest_state_type"] = summary.get("type")
+        if source is not None:
+            session["last_state_source"] = source
         if summary.get("decision") not in {None, "menu"}:
             session["has_seen_non_menu_state"] = True
             session["last_non_menu_decision"] = summary.get("decision")
@@ -872,7 +902,7 @@ class MemoryV1Store:
     def _finalize_run(self, result: str) -> None:
         if self.active is None:
             return
-        self.active.session_data["status"] = "finished"
+        self.active.session_data["status"] = result if result not in {"", "unknown"} else "finished"
         self.active.session_data["ended_at"] = self._timestamp_iso_ms()
         self.active.session_data["result"] = result
         self._append_event("run_ended", f"Run ended: {result}", {"result": result})
@@ -887,6 +917,24 @@ class MemoryV1Store:
         if state.get("decision") != "menu":
             return False
         return bool(state.get("can_continue_game")) and bool(self.active.session_data.get("has_seen_non_menu_state"))
+
+    def _should_finalize_on_menu_state(
+        self,
+        *,
+        previous_summary: dict[str, Any],
+        previous_state: dict[str, Any] | None,
+        current_summary: dict[str, Any],
+        current_state: dict[str, Any] | None,
+    ) -> bool:
+        if current_summary.get("decision") != "menu":
+            return False
+
+        current_keeps_run = self._menu_keeps_run_active(current_state)
+        if previous_summary.get("decision") != "menu":
+            return not current_keeps_run
+
+        previous_keeps_run = self._menu_keeps_run_active(previous_state)
+        return previous_keeps_run and not current_keeps_run
 
     def _diff_summary(
         self,
@@ -964,18 +1012,36 @@ class MemoryV1Store:
 
     def _infer_result(
         self,
-        previous_summary: dict[str, Any],
+        summary: dict[str, Any],
         *,
+        current_state: dict[str, Any] | None = None,
+        previous_summary: dict[str, Any] | None = None,
         previous_state: dict[str, Any] | None = None,
         session: dict[str, Any] | None = None,
     ) -> str:
         session = session or {}
-        decision = previous_summary.get("decision")
+        previous_summary = previous_summary or {}
+        decision = summary.get("decision")
+        state_for_hp = current_state
+
+        if decision == "menu" and previous_summary.get("decision") == "game_over":
+            decision = "game_over"
+            state_for_hp = previous_state
+
+        last_command = str(session.get("last_command") or "").strip()
+        if (
+            decision == "menu"
+            and last_command.startswith("abandon-game")
+            and isinstance(current_state, dict)
+            and not bool(current_state.get("can_continue_game"))
+        ):
+            return "abandoned"
+
         if decision in {None, "menu"}:
             decision = session.get("last_non_menu_decision")
-        hp = previous_summary.get("hp")
-        if hp is None and isinstance(previous_state, dict):
-            player = previous_state.get("player")
+        hp = previous_summary.get("hp") if previous_summary.get("decision") == "game_over" else summary.get("hp")
+        if hp is None and isinstance(state_for_hp, dict):
+            player = state_for_hp.get("player")
             if isinstance(player, dict):
                 hp = player.get("hp")
         if hp is None:

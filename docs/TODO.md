@@ -8,7 +8,7 @@
 - 通过 `sts2` CLI 暴露原子控制命令
 - 通过 `pi` harness 驱动 agent 自动游玩
 - 通过浏览器前端控制 agent、查看状态和日志
-- Memory V1 已有实现骨架：单局短期记忆目录、事件流、摘要和 prompt 注入已经接入前端控制服务
+- Memory V1 已完成：单局短期记忆目录、事件流、摘要和 prompt 注入已经接入前端控制服务，并有基础回归测试
 
 ## 下一阶段重点
 
@@ -34,12 +34,11 @@
 - 提升战斗决策质量，减少低级失误
 - 提升局后流程处理能力（奖励、商店、事件、游戏结束）
 
-### 4. Memory V1 Completion
+### 4. Memory V1 Regression
 
-- 校验 V1 当前实现是否完全符合文档
-- 补齐 `session.json / summary.md / state_snapshot.json / events.jsonl` 字段完整性
-- 验证 `run_id`、`memory/latest`、局结束落盘稳定性
-- 验证 prompt 读取的是当前 run 摘要，而不是跨局数据
+- 新增状态类型或命令流后，补充 Memory V1 回归测试
+- 持续验证 `run_id`、`memory/latest`、局结束落盘稳定性
+- 持续验证 prompt 只读取当前活动 run 摘要，而不是跨局数据
 
 ### 5. Memory V2
 
@@ -50,7 +49,7 @@
 
 ## 参考文档
 
-- [docs/memory/README.md](/Users/tianyufan/Desktop/workspace/Slay_the_Spire/STS2CLI/docs/memory/README.md)
-- [docs/memory/MEMORY_DESIGN.md](/Users/tianyufan/Desktop/workspace/Slay_the_Spire/STS2CLI/docs/memory/MEMORY_DESIGN.md)
-- [docs/memory/MEMORY_V1.md](/Users/tianyufan/Desktop/workspace/Slay_the_Spire/STS2CLI/docs/memory/MEMORY_V1.md)
-- [docs/TODO.md](/Users/tianyufan/Desktop/workspace/Slay_the_Spire/STS2CLI/docs/TODO.md)
+- [docs/memory/README.md](docs/memory/README.md)
+- [docs/memory/MEMORY_DESIGN.md](docs/memory/MEMORY_DESIGN.md)
+- [docs/memory/MEMORY_V1.md](docs/memory/MEMORY_V1.md)
+- [docs/TODO.md](docs/TODO.md)

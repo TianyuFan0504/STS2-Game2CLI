@@ -2,6 +2,10 @@
 
 `STS2-Game2CLI` 是一个把真实运行中的 Steam 版《Slay the Spire 2》接到命令行和本地 agent harness 上的适配层。
 
+<p align="center">
+  <img src="assets/example_gif.gif" alt="STS2-Game2CLI demo" width="900">
+</p>
+
 它的工作方式是：
 
 1. 游戏内桥接插件 `STS2_Bridge` 运行在游戏进程中。

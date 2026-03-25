@@ -4,6 +4,10 @@ English README. For the Chinese version, see [README_ZH.md](README_ZH.md).
 
 `STS2-Game2CLI` is an adapter layer that connects the real Steam version of *Slay the Spire 2* to a local CLI and agent harness.
 
+<p align="center">
+  <img src="assets/example_gif.gif" alt="STS2-Game2CLI demo" width="900">
+</p>
+
 It works like this:
 
 1. The in-game bridge mod `STS2_Bridge` runs inside the game process.

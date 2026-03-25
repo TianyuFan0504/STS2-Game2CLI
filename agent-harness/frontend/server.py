@@ -522,7 +522,6 @@ class AgentController:
                     time.sleep(cooldown)
         finally:
             with self._lock:
-                should_finalize_interrupted = self._stop_requested and self._memory.get_active_run_info() is not None
                 if self._stop_requested:
                     self._mode = "idle"
                 elif self._pause_requested:
@@ -533,8 +532,6 @@ class AgentController:
                     self._mode = "idle"
                 self._process = None
                 self._thread = None
-                if should_finalize_interrupted:
-                    self._memory.finalize_if_active("interrupted")
                 self._stop_requested = False
 
     def _run_one_iteration(self, iteration: int, mode: str) -> int:
