@@ -9,7 +9,7 @@
 - 通过 `pi` harness 驱动 agent 自动游玩
 - 通过浏览器前端控制 agent、查看状态和日志
 - Memory V1 已完成：单局短期记忆目录、事件流、摘要和 prompt 注入已经接入前端控制服务，并有基础回归测试
-- Memory V2 已开始：局结束后会生成首批 `derived/` 聚合文件，并维护 `memory/archive/index.sqlite`
+- Memory V2 已开始：局结束后会生成首批 `turns/` / `battles/` / `rewards/` / `derived/` 文件，并维护 `memory/archive/index.sqlite`
 
 ## 下一阶段重点
 

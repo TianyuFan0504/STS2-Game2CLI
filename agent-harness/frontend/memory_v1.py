@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from memory_v2 import MemoryV2Archive
+from sts2_commands import extract_sts2_segments
 
 
 def summarize_state(state: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -58,6 +59,7 @@ class MemoryV1Store:
         self.last_run_dir: Path | None = None
         self.pending_new_run: dict[str, Any] | None = None
         self.pending_run_command: dict[str, Any] | None = None
+        self.pending_turn_start: dict[str, Any] | None = None
         self._restore_from_disk()
         self.v2.sync_finished_runs()
 
@@ -268,6 +270,7 @@ class MemoryV1Store:
         self._write_state_snapshot(state, raw_state, summary)
 
         if previous_summary is None:
+            self._flush_pending_turn_start(summary)
             self._flush_pending_run_command()
             payload: dict[str, Any] = {"source": source, "summary": summary}
             if self.pending_new_run is not None:
@@ -331,7 +334,7 @@ class MemoryV1Store:
             return False
         self.pending_new_run = self._parse_pending_new_run(new_run_command, source=source)
         self.pending_run_command = {
-            "command": clean,
+            "command": new_run_command,
             "source": source,
             "result": result,
         }
@@ -348,6 +351,22 @@ class MemoryV1Store:
         )
         self._append_agent_event_view(ledger_record)
         self._write_session()
+
+    def prepare_turn(self, iteration: int, *, mode: str, state: dict[str, Any] | None) -> None:
+        summary = summarize_state(state)
+        payload = {
+            "iteration": iteration,
+            "mode": mode,
+            "state_summary": summary,
+        }
+        if self.active is None:
+            self.pending_turn_start = payload
+            return
+        self._append_artifact(
+            "turn_started",
+            f"Turn {iteration:04d} started",
+            payload,
+        )
 
     def write_runtime_prompt(self, text: str, *, iteration: int, mode: str) -> Path | None:
         if self.active is None:
@@ -482,6 +501,17 @@ class MemoryV1Store:
             result=pending.get("result"),
             source=str(pending.get("source") or "agent"),
         )
+
+    def _flush_pending_turn_start(self, fallback_summary: dict[str, Any]) -> None:
+        if self.active is None or self.pending_turn_start is None:
+            return
+        pending = dict(self.pending_turn_start)
+        self.pending_turn_start = None
+        if not isinstance(pending.get("state_summary"), dict):
+            pending["state_summary"] = dict(fallback_summary)
+        iteration = pending.get("iteration")
+        label = f"Turn {int(iteration):04d} started" if isinstance(iteration, int) else "Turn started"
+        self._append_artifact("turn_started", label, pending)
 
     def _append_ledger(
         self,
@@ -1066,18 +1096,13 @@ class MemoryV1Store:
         return "unknown"
 
     def _extract_new_run_command(self, command: str) -> str | None:
-        for segment in re.split(r"\s*(?:&&|\|\||;)\s*", command):
-            segment = segment.strip()
-            if not segment:
-                continue
-            if segment.startswith("sts2 "):
-                segment = segment.removeprefix("sts2 ").strip()
-            else:
-                match = re.search(r"(^|[ /])sts2\s+(?P<rest>.+)$", segment)
-                if match:
-                    segment = match.group("rest").strip()
-            if segment.startswith("start-game") or segment.startswith("continue-game"):
-                return segment
+        clean = command.strip()
+        if clean.startswith("start-game") or clean.startswith("continue-game"):
+            return clean
+        for segment in extract_sts2_segments(command):
+            subcommand = segment.removeprefix("sts2 ").strip()
+            if subcommand.startswith("start-game") or subcommand.startswith("continue-game"):
+                return subcommand
         return None
 
     def _parse_pending_new_run(self, command: str, *, source: str) -> dict[str, Any]:

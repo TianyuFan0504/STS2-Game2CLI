@@ -33,4 +33,7 @@
 - 运行期数据留在 `memory/runs/<run_id>/`，设计文档统一放在 `docs/memory/`
 - 先 `memory/runs/<run_id>/` 单局目录，后 `memory/archive/index.sqlite`
 - 当前 V1 已完成并接入前端控制服务
-- 当前 V2 已开始实现，首批能力是单局 `derived/` 聚合文件和 `memory/archive/index.sqlite`
+- 当前 V2 已开始实现，首批能力包括：
+- 单局 `turns/` / `battles/` / `rewards/` / `derived/` 的 Phase-1 落盘
+- `memory/archive/index.sqlite`
+- 基础 `run_battles` / `run_tags` 索引

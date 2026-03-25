@@ -12,6 +12,12 @@ if str(FRONTEND_DIR) not in sys.path:
     sys.path.insert(0, str(FRONTEND_DIR))
 
 from memory_v1 import MemoryV1Store
+from sts2_commands import extract_sts2_segments
+
+PYTHON_FALLBACK_START = (
+    'python3 -c "import sys; sys.path.insert(0, \'.\'); '
+    'from sts2cli.cli import main; main()" start-game --character IRONCLAD --ascension 0'
+)
 
 
 def build_state(
@@ -207,6 +213,80 @@ class MemoryV1StoreTests(unittest.TestCase):
         session = self._load_session(run_id)
         self.assertEqual(session["result"], "lost")
         self.assertEqual(session["status"], "lost")
+
+    def test_python_cli_fallback_is_recognized_as_sts2_start_game(self) -> None:
+        self.assertEqual(
+            extract_sts2_segments(PYTHON_FALLBACK_START),
+            ["sts2 start-game --character IRONCLAD --ascension 0"],
+        )
+
+    def test_python_cli_fallback_start_game_splits_run_after_game_over(self) -> None:
+        self.store.record_state(
+            build_state(
+                "combat_play",
+                state_type="decision",
+                hp=23,
+                max_hp=80,
+                hand=[],
+                enemies=[],
+            ),
+            source="iteration_start",
+        )
+        old_run_id = self._active_run_id()
+
+        self.store.record_state(
+            build_state(
+                "game_over",
+                state_type="decision",
+                hp=0,
+                max_hp=80,
+                can_return_to_main_menu=True,
+                can_continue=False,
+                options=[{"id": "return_to_main_menu", "is_enabled": True}],
+            ),
+            source="iteration_end",
+        )
+        self.store.record_state(
+            build_state(
+                "menu",
+                state_type="status",
+                hp=0,
+                max_hp=80,
+                can_continue_game=False,
+                can_start_new_game=True,
+                menu={"screen": "main_menu"},
+            ),
+            source="iteration_end",
+        )
+
+        deferred = self.store.ensure_run_from_command(PYTHON_FALLBACK_START, source="agent", result="ok")
+        self.assertTrue(deferred)
+
+        self.store.record_state(
+            build_state(
+                "map_select",
+                state_type="decision",
+                floor=0,
+                hp=80,
+                max_hp=80,
+                current_position={"col": 0, "row": 0, "type": "start"},
+                choices=[],
+                visited=[],
+            ),
+            source="iteration_start",
+        )
+
+        new_run_id = self._active_run_id()
+        self.assertNotEqual(new_run_id, old_run_id)
+        self.assertEqual((self.root / "latest").resolve(strict=True).name, new_run_id)
+
+        old_session = self._load_session(old_run_id)
+        self.assertEqual(old_session["status"], "lost")
+        self.assertEqual(old_session["result"], "lost")
+
+        new_session = self._load_session(new_run_id)
+        self.assertEqual(new_session["status"], "active")
+        self.assertEqual(new_session["last_command"], "start-game --character IRONCLAD --ascension 0")
 
     def test_finished_run_is_not_injected_back_into_prompt(self) -> None:
         self.store.record_state(

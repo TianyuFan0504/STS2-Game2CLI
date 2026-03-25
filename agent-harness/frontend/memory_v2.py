@@ -6,7 +6,37 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+
+COMBAT_DECISIONS = {"combat_play", "hand_select"}
+REWARD_DECISIONS = {
+    "card_reward",
+    "combat_rewards",
+    "event_choice",
+    "rest_site",
+    "shop",
+    "card_select",
+    "relic_select",
+    "treasure",
+}
+
+
+def summarize_state(state: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(state, dict):
+        return None
+    player = state.get("player") if isinstance(state.get("player"), dict) else {}
+    context = state.get("context") if isinstance(state.get("context"), dict) else {}
+    return {
+        "decision": state.get("decision"),
+        "type": state.get("type"),
+        "act": context.get("act"),
+        "floor": context.get("floor"),
+        "ascension": context.get("ascension"),
+        "character": player.get("character"),
+        "hp": player.get("hp"),
+        "max_hp": player.get("max_hp"),
+        "gold": player.get("gold"),
+    }
 
 
 class MemoryV2Archive:
@@ -35,6 +65,7 @@ class MemoryV2Archive:
 
         snapshot = self._load_json_dict(data_dir / "state_snapshot.json") or {}
         events = self._load_jsonl(data_dir / "events.jsonl")
+        ledger = self._load_jsonl(data_dir / "ledger.jsonl")
         final_state = snapshot.get("normalized_state") if isinstance(snapshot.get("normalized_state"), dict) else {}
         final_summary = snapshot.get("derived_summary") if isinstance(snapshot.get("derived_summary"), dict) else {}
 
@@ -45,9 +76,16 @@ class MemoryV2Archive:
         for path in (turns_dir, battles_dir, rewards_dir, derived_dir):
             path.mkdir(parents=True, exist_ok=True)
 
+        self._clear_json_dir(turns_dir)
+        self._clear_json_dir(battles_dir)
+        self._clear_json_dir(rewards_dir)
+
+        turns = self._build_turn_files(turns_dir, session, ledger)
+        rewards = self._build_reward_files(rewards_dir, session, turns)
+        battles = self._build_battle_files(battles_dir, session, turns)
         route_timeline = self._build_route_timeline(session, final_state)
-        resource_timeline = self._build_resource_timeline(session, final_summary, events)
-        run_tags = self._build_run_tags(session, final_summary, final_state)
+        resource_timeline = self._build_resource_timeline(session, final_summary, events, turns)
+        run_tags = self._build_run_tags(session, final_summary, final_state, turns=turns, battles=battles, rewards=rewards)
 
         self._write_json(derived_dir / "route_timeline.json", route_timeline)
         self._write_json(derived_dir / "resource_timeline.json", resource_timeline)
@@ -120,9 +158,35 @@ class MemoryV2Archive:
             conn.execute("DELETE FROM run_tags WHERE run_id = ?", (str(session["run_id"]),))
             conn.executemany(
                 "INSERT INTO run_tags (run_id, tag_type, tag_value) VALUES (?, ?, ?)",
+                [(str(session["run_id"]), tag["tag_type"], tag["tag_value"]) for tag in run_tags],
+            )
+            conn.execute("DELETE FROM run_battles WHERE run_id = ?", (str(session["run_id"]),))
+            conn.executemany(
+                """
+                INSERT INTO run_battles (
+                    run_id,
+                    battle_id,
+                    act,
+                    floor,
+                    enemy_signature,
+                    hp_before,
+                    hp_after,
+                    result
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
                 [
-                    (str(session["run_id"]), tag["tag_type"], tag["tag_value"])
-                    for tag in run_tags
+                    (
+                        str(session["run_id"]),
+                        battle["battle_id"],
+                        battle.get("act"),
+                        battle.get("floor"),
+                        battle.get("enemy_signature"),
+                        battle.get("hp_before"),
+                        battle.get("hp_after"),
+                        battle.get("result"),
+                    )
+                    for battle in battles
                 ],
             )
 
@@ -166,6 +230,176 @@ class MemoryV2Archive:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def find_battles(self, *, run_id: str | None = None, result: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
+        query = (
+            "SELECT run_id, battle_id, act, floor, enemy_signature, hp_before, hp_after, result "
+            "FROM run_battles WHERE 1 = 1"
+        )
+        params: list[Any] = []
+        if run_id:
+            query += " AND run_id = ?"
+            params.append(run_id)
+        if result:
+            query += " AND result = ?"
+            params.append(result)
+        query += " ORDER BY run_id, battle_id LIMIT ?"
+        params.append(limit)
+        with self._connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+        return [dict(row) for row in rows]
+
+    def _build_turn_files(self, turns_dir: Path, session: dict[str, Any], ledger: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        turns: list[dict[str, Any]] = []
+        current_meta: dict[str, Any] | None = None
+        current_records: list[dict[str, Any]] = []
+
+        for record in ledger:
+            if self._is_turn_started_record(record):
+                if current_meta is not None:
+                    turns.append(self._write_turn_file(turns_dir, session, current_meta, current_records))
+                current_meta = self._extract_turn_meta(record)
+                current_records = [record]
+                continue
+            if current_meta is not None:
+                current_records.append(record)
+
+        if current_meta is not None:
+            turns.append(self._write_turn_file(turns_dir, session, current_meta, current_records))
+        return turns
+
+    def _write_turn_file(
+        self,
+        turns_dir: Path,
+        session: dict[str, Any],
+        meta: dict[str, Any],
+        records: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        iteration = int(meta.get("iteration") or (len(list(turns_dir.glob("turn_*.json"))) + 1))
+        turn_id = f"turn_{iteration:04d}"
+        state_before = self._normalize_summary_dict(meta.get("state_summary"))
+        state_after = self._reconstruct_turn_end_summary(state_before, records)
+        commands = self._extract_turn_commands(records)
+        assistant_output = self._extract_turn_assistant_output(records)
+        artifact_paths = self._extract_turn_artifact_paths(records)
+        summary = assistant_output.strip() if assistant_output else self._summarize_turn(commands, state_before, state_after)
+
+        payload = {
+            "turn_id": turn_id,
+            "run_id": str(session["run_id"]),
+            "iteration": iteration,
+            "started_at": records[0].get("ts") if records else None,
+            "ended_at": records[-1].get("ts") if records else None,
+            "mode": meta.get("mode"),
+            "decision_before": state_before.get("decision"),
+            "decision_after": state_after.get("decision"),
+            "state_before": state_before,
+            "state_after": state_after,
+            "commands": commands,
+            "assistant_output": assistant_output,
+            "summary": summary,
+            "artifacts": artifact_paths,
+            "seq_id_start": records[0].get("seq_id") if records else None,
+            "seq_id_end": records[-1].get("seq_id") if records else None,
+            "event_count": len(records),
+        }
+        self._write_json(turns_dir / f"{turn_id}.json", payload)
+        return payload
+
+    def _build_reward_files(self, rewards_dir: Path, session: dict[str, Any], turns: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        rewards: list[dict[str, Any]] = []
+        for turn in turns:
+            source = str(turn.get("decision_before") or "")
+            if source not in REWARD_DECISIONS:
+                continue
+            reward_id = f"reward_{len(rewards) + 1:04d}"
+            commands = [command.get("command") for command in turn.get("commands", []) if isinstance(command, dict)]
+            chosen = commands[0] if commands else None
+            skipped = any(
+                isinstance(command, str) and (
+                    command.startswith("skip-")
+                    or command.startswith("skip ")
+                    or command.startswith("skip-card-reward")
+                    or command.startswith("skip-relic-selection")
+                )
+                for command in commands
+            )
+            reward = {
+                "reward_id": reward_id,
+                "run_id": str(session["run_id"]),
+                "turn_id": turn.get("turn_id"),
+                "act": turn.get("state_before", {}).get("act") or turn.get("state_after", {}).get("act"),
+                "floor": turn.get("state_before", {}).get("floor") or turn.get("state_after", {}).get("floor"),
+                "source": source,
+                "options": [],
+                "chosen": chosen,
+                "skipped": skipped,
+                "commands": commands,
+                "decision_after": turn.get("decision_after"),
+                "notes": "Phase-1 reward extraction stores command-level decisions; option payloads are not yet reconstructed.",
+            }
+            self._write_json(rewards_dir / f"{reward_id}.json", reward)
+            rewards.append(reward)
+        return rewards
+
+    def _build_battle_files(self, battles_dir: Path, session: dict[str, Any], turns: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        battles: list[dict[str, Any]] = []
+        current_group: list[dict[str, Any]] = []
+
+        for turn in turns:
+            if self._turn_is_combat(turn):
+                current_group.append(turn)
+                continue
+            if current_group:
+                battles.append(self._write_battle_file(battles_dir, session, current_group, len(battles) + 1))
+                current_group = []
+        if current_group:
+            battles.append(self._write_battle_file(battles_dir, session, current_group, len(battles) + 1))
+        return battles
+
+    def _write_battle_file(
+        self,
+        battles_dir: Path,
+        session: dict[str, Any],
+        turns: list[dict[str, Any]],
+        index: int,
+    ) -> dict[str, Any]:
+        first = turns[0]
+        last = turns[-1]
+        battle_start_state = self._select_battle_entry_state(first)
+        commands = [
+            command.get("command")
+            for turn in turns
+            for command in turn.get("commands", [])
+            if isinstance(command, dict)
+        ]
+        battle = {
+            "battle_id": f"battle_{index:04d}",
+            "run_id": str(session["run_id"]),
+            "act": battle_start_state.get("act"),
+            "floor": battle_start_state.get("floor"),
+            "room_type": None,
+            "enemy_names": [],
+            "enemy_signature": None,
+            "hp_before": battle_start_state.get("hp"),
+            "hp_after": last.get("state_after", {}).get("hp"),
+            "turn_count": len(turns),
+            "result": self._infer_battle_result(turns, session),
+            "turn_ids": [turn.get("turn_id") for turn in turns],
+            "commands": commands,
+            "notes": "Phase-1 battle extraction groups contiguous combat turns from turn summaries.",
+        }
+        self._write_json(battles_dir / f"{battle['battle_id']}.json", battle)
+        return battle
+
+    def _select_battle_entry_state(self, turn: dict[str, Any]) -> dict[str, Any]:
+        before = turn.get("state_before", {}) if isinstance(turn.get("state_before"), dict) else {}
+        after = turn.get("state_after", {}) if isinstance(turn.get("state_after"), dict) else {}
+        if str(turn.get("decision_before") or "") in COMBAT_DECISIONS:
+            return before
+        if str(turn.get("decision_after") or "") in COMBAT_DECISIONS:
+            return after
+        return before or after
+
     def _build_route_timeline(self, session: dict[str, Any], final_state: dict[str, Any]) -> dict[str, Any]:
         visited = final_state.get("visited")
         if not isinstance(visited, list) or not visited:
@@ -194,6 +428,7 @@ class MemoryV2Archive:
         session: dict[str, Any],
         final_summary: dict[str, Any],
         events: list[dict[str, Any]],
+        turns: list[dict[str, Any]],
     ) -> dict[str, Any]:
         entries: list[dict[str, Any]] = []
         for event in events:
@@ -230,6 +465,7 @@ class MemoryV2Archive:
         return {
             "run_id": str(session["run_id"]),
             "entries": entries,
+            "turn_count": len(turns),
             "final": {
                 "act": final_summary.get("act", session.get("latest_act")),
                 "floor": final_summary.get("floor", session.get("latest_floor")),
@@ -245,6 +481,10 @@ class MemoryV2Archive:
         session: dict[str, Any],
         final_summary: dict[str, Any],
         final_state: dict[str, Any],
+        *,
+        turns: list[dict[str, Any]],
+        battles: list[dict[str, Any]],
+        rewards: list[dict[str, Any]],
     ) -> list[dict[str, str]]:
         seen: set[tuple[str, str]] = set()
         tags: list[dict[str, str]] = []
@@ -267,6 +507,9 @@ class MemoryV2Archive:
         add("latest_decision", session.get("latest_decision"))
         add("boss", self._extract_boss_name(final_state))
         add("death_enemy", self._extract_death_enemy(final_state))
+        add("turn_count", len(turns))
+        add("battle_count", len(battles))
+        add("reward_count", len(rewards))
         return tags
 
     def _extract_boss_name(self, final_state: dict[str, Any]) -> str | None:
@@ -295,6 +538,173 @@ class MemoryV2Archive:
             if value:
                 return str(value)
         return None
+
+    def _normalize_summary_dict(self, value: Any) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            return {}
+        return {
+            "decision": value.get("decision"),
+            "type": value.get("type"),
+            "act": value.get("act"),
+            "floor": value.get("floor"),
+            "ascension": value.get("ascension"),
+            "character": value.get("character"),
+            "hp": value.get("hp"),
+            "max_hp": value.get("max_hp"),
+            "gold": value.get("gold"),
+        }
+
+    def _is_turn_started_record(self, record: dict[str, Any]) -> bool:
+        return str(record.get("record_type") or "") == "artifact" and str(record.get("artifact_type") or "") == "turn_started"
+
+    def _extract_turn_meta(self, record: dict[str, Any]) -> dict[str, Any]:
+        payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
+        return {
+            "iteration": payload.get("iteration"),
+            "mode": payload.get("mode"),
+            "state_summary": self._normalize_summary_dict(payload.get("state_summary")),
+        }
+
+    def _reconstruct_turn_end_summary(self, state_before: dict[str, Any], records: list[dict[str, Any]]) -> dict[str, Any]:
+        current = dict(state_before)
+        for record in records:
+            current = self._apply_record_to_summary(current, record)
+        return current
+
+    def _apply_record_to_summary(self, current: dict[str, Any], record: dict[str, Any]) -> dict[str, Any]:
+        summary = dict(current)
+        if not summary:
+            summary = self._seed_summary_from_record(record)
+
+        if record.get("act") is not None:
+            summary["act"] = record.get("act")
+        if record.get("floor") is not None:
+            summary["floor"] = record.get("floor")
+        if record.get("decision") is not None:
+            summary["decision"] = record.get("decision")
+
+        if str(record.get("record_type") or "") != "event":
+            return summary
+
+        event_type = str(record.get("event_type") or "")
+        payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
+
+        if event_type == "run_started":
+            started_summary = self._normalize_summary_dict(payload.get("summary"))
+            if started_summary:
+                summary.update(started_summary)
+        elif event_type == "state_transition":
+            summary["decision"] = payload.get("to", summary.get("decision"))
+        elif event_type == "act_change":
+            summary["act"] = payload.get("to", summary.get("act"))
+        elif event_type == "floor_change":
+            summary["floor"] = payload.get("to", summary.get("floor"))
+        elif event_type == "gold_change":
+            summary["gold"] = payload.get("to", summary.get("gold"))
+        elif event_type == "hp_change":
+            after = payload.get("to")
+            if isinstance(after, list) and len(after) == 2:
+                summary["hp"] = after[0]
+                summary["max_hp"] = after[1]
+        return summary
+
+    def _seed_summary_from_record(self, record: dict[str, Any]) -> dict[str, Any]:
+        payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
+        if str(record.get("record_type") or "") == "event" and str(record.get("event_type") or "") == "run_started":
+            summary = self._normalize_summary_dict(payload.get("summary"))
+            if summary:
+                return summary
+        return {
+            "decision": record.get("decision"),
+            "type": None,
+            "act": record.get("act"),
+            "floor": record.get("floor"),
+            "ascension": None,
+            "character": None,
+            "hp": None,
+            "max_hp": None,
+            "gold": None,
+        }
+
+    def _extract_turn_commands(self, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        commands: list[dict[str, Any]] = []
+        for record in records:
+            if str(record.get("record_type") or "") != "event" or str(record.get("event_type") or "") != "sts2_command":
+                continue
+            payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
+            command = payload.get("command")
+            if not isinstance(command, str) or not command.strip():
+                continue
+            commands.append(
+                {
+                    "command": command,
+                    "source": payload.get("source"),
+                    "result": payload.get("result"),
+                    "seq_id": record.get("seq_id"),
+                    "ts": record.get("ts"),
+                }
+            )
+        return commands
+
+    def _extract_turn_assistant_output(self, records: list[dict[str, Any]]) -> str:
+        assistant_done = ""
+        assistant_delta_parts: list[str] = []
+        for record in records:
+            if str(record.get("record_type") or "") != "agent_event":
+                continue
+            kind = str(record.get("kind") or "")
+            text = str(record.get("text") or "")
+            if kind == "assistant_done" and text:
+                assistant_done = text
+            elif kind == "assistant_text_delta" and text:
+                assistant_delta_parts.append(text)
+        if assistant_done:
+            return assistant_done
+        return "".join(assistant_delta_parts).strip()
+
+    def _extract_turn_artifact_paths(self, records: list[dict[str, Any]]) -> dict[str, Any]:
+        paths: dict[str, Any] = {
+            "runtime_prompt": None,
+            "raw_log": None,
+            "text_log": None,
+        }
+        for record in records:
+            if str(record.get("record_type") or "") != "artifact":
+                continue
+            artifact_type = str(record.get("artifact_type") or "")
+            payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
+            if artifact_type == "runtime_prompt":
+                paths["runtime_prompt"] = payload.get("path")
+            elif artifact_type == "iteration_artifacts":
+                paths["raw_log"] = payload.get("raw_path")
+                paths["text_log"] = payload.get("text_path")
+        return paths
+
+    def _summarize_turn(self, commands: list[dict[str, Any]], state_before: dict[str, Any], state_after: dict[str, Any]) -> str:
+        if commands:
+            command_text = ", ".join(str(command.get("command") or "") for command in commands if command.get("command"))
+            after = state_after.get("decision") or state_before.get("decision") or "unknown"
+            return f"Executed {command_text} and ended on {after}."
+        before = state_before.get("decision") or "unknown"
+        after = state_after.get("decision") or "unknown"
+        if before == after:
+            return f"Observed {before} without executing a state-changing command."
+        return f"Observed transition from {before} to {after}."
+
+    def _turn_is_combat(self, turn: dict[str, Any]) -> bool:
+        before = str(turn.get("decision_before") or "")
+        after = str(turn.get("decision_after") or "")
+        return before in COMBAT_DECISIONS or after in COMBAT_DECISIONS
+
+    def _infer_battle_result(self, turns: list[dict[str, Any]], session: dict[str, Any]) -> str:
+        final_decision = str(turns[-1].get("decision_after") or "")
+        if final_decision == "combat_rewards":
+            return "won"
+        if final_decision == "game_over" or session.get("result") == "lost":
+            return "lost"
+        if final_decision and final_decision not in COMBAT_DECISIONS:
+            return "finished"
+        return "ongoing"
 
     def _ensure_schema(self) -> None:
         with self._connect() as conn:
@@ -331,11 +741,26 @@ class MemoryV2Archive:
                 """
             )
             conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_runs_character_ascension ON runs(character, ascension)"
+                """
+                CREATE TABLE IF NOT EXISTS run_battles (
+                    run_id TEXT NOT NULL,
+                    battle_id TEXT NOT NULL,
+                    act INTEGER,
+                    floor INTEGER,
+                    enemy_signature TEXT,
+                    hp_before INTEGER,
+                    hp_after INTEGER,
+                    result TEXT,
+                    PRIMARY KEY (run_id, battle_id),
+                    FOREIGN KEY (run_id) REFERENCES runs(run_id) ON DELETE CASCADE
+                )
+                """
             )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_character_ascension ON runs(character, ascension)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_result ON runs(result)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_ended_at ON runs(ended_at)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_run_tags_lookup ON run_tags(tag_type, tag_value)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_run_battles_floor ON run_battles(floor)")
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     def _connect(self) -> sqlite3.Connection:
@@ -346,6 +771,10 @@ class MemoryV2Archive:
 
     def _write_json(self, path: Path, payload: dict[str, Any]) -> None:
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    def _clear_json_dir(self, path: Path) -> None:
+        for child in path.glob("*.json"):
+            child.unlink()
 
     def _load_json_dict(self, path: Path) -> dict[str, Any] | None:
         if not path.exists():
