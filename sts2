@@ -1,0 +1,15 @@
+#!/bin/sh
+
+SCRIPT_PATH="$0"
+if [ -L "$SCRIPT_PATH" ]; then
+  TARGET="$(readlink "$SCRIPT_PATH")"
+  case "$TARGET" in
+    /*) SCRIPT_PATH="$TARGET" ;;
+    *) SCRIPT_PATH="$(dirname "$SCRIPT_PATH")/$TARGET" ;;
+  esac
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+export PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}"
+
+exec python3 -m sts2cli.cli "$@"

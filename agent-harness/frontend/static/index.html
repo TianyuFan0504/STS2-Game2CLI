@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>STS2CLI Control Room</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">STS2CLI Frontend</p>
+          <h1>Control Room</h1>
+          <p class="subtitle">Local control room for starting, pausing, resuming, and observing the game agent.</p>
+        </div>
+        <div class="hero-status">
+          <div class="status-badge" id="agentStatus">idle</div>
+          <div class="status-badge" id="gameStatus">game: unknown</div>
+          <div class="status-badge" id="decisionStatus">decision: -</div>
+        </div>
+      </header>
+
+      <section class="controls card">
+        <div class="button-row">
+          <button id="stepBtn">Micro-Step</button>
+          <button id="fullAutoBtn">Full Auto</button>
+          <button id="pauseBtn" class="ghost">Pause</button>
+          <button id="resumeBtn" class="ghost">Resume</button>
+          <button id="stopBtn" class="danger">Stop</button>
+          <button id="refreshBtn" class="ghost">Refresh</button>
+        </div>
+        <div class="meta-row">
+          <span id="sessionDir">session: -</span>
+          <span id="iterationInfo">iteration: -</span>
+          <span id="lastExit">last exit: -</span>
+        </div>
+      </section>
+
+      <section class="dashboard">
+        <div class="card summary">
+          <h2>Game Summary</h2>
+          <div class="summary-grid">
+            <div><span class="label">Decision</span><span id="decisionValue">-</span></div>
+            <div><span class="label">Act</span><span id="actValue">-</span></div>
+            <div><span class="label">Floor</span><span id="floorValue">-</span></div>
+            <div><span class="label">Character</span><span id="characterValue">-</span></div>
+            <div><span class="label">HP</span><span id="hpValue">-</span></div>
+            <div><span class="label">Gold</span><span id="goldValue">-</span></div>
+          </div>
+          <div class="summary-errors">
+            <div class="summary-warning">
+              <div class="summary-item-header">
+                <span class="label">Warning</span>
+                <button id="warningToggle" type="button" class="ghost summary-toggle">Hide Warnings</button>
+              </div>
+              <span id="warningValue">-</span>
+            </div>
+            <div><span class="label">Error</span><span id="errorValue">-</span></div>
+          </div>
+        </div>
+
+        <div class="card memory-card">
+          <div class="memory-header">
+            <h2>Run Summary</h2>
+            <div class="memory-meta">
+              <span id="memoryRunId">run: -</span>
+              <span id="memorySummaryPath">summary: -</span>
+            </div>
+          </div>
+          <pre id="memorySummaryPane" class="mono memory-pane"></pre>
+        </div>
+      </section>
+
+      <section class="streams">
+        <div class="card panel">
+          <div class="panel-header">
+            <h2>Live Thinking</h2>
+            <button id="thinkingScrollToggle" type="button" class="ghost panel-toggle">Pause Scroll</button>
+          </div>
+          <pre id="thinkingPane" class="mono"></pre>
+        </div>
+        <div class="card panel">
+          <h2>Assistant Output</h2>
+          <pre id="outputPane" class="mono"></pre>
+        </div>
+        <div class="card panel">
+          <h2>STS2 Commands</h2>
+          <pre id="commandPane" class="mono"></pre>
+        </div>
+        <div class="card panel wide">
+          <h2>System Events</h2>
+          <div id="eventTimeline" class="timeline"></div>
+        </div>
+        <div class="card panel wide">
+          <h2>Current State JSON</h2>
+          <pre id="statePane" class="mono"></pre>
+        </div>
+      </section>
+    </div>
+
+    <script src="/static/app.js"></script>
+  </body>
+  </html>

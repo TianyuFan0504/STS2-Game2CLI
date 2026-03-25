@@ -1,0 +1,4 @@
+interface:
+  display_name: "STS2 Game Player"
+  short_description: "Play Slay the Spire 2 through sts2 CLI"
+  default_prompt: "Use the $sts2-game-player skill to control Slay the Spire 2 through the local sts2 CLI bridge. Read `sts2 state`, generate explicit `sts2 ...` commands yourself, avoid `sts2 agent-step` and `sts2 agent-run`, keep the run moving from menu to combat/map/rewards, and prefer lines that minimize HP loss while maintaining deck quality."

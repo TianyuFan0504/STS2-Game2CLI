@@ -1,0 +1,8 @@
+{
+  "name": "sts2cli-pi-runtime",
+  "private": true,
+  "description": "Pinned runtime for STS2CLI's pi agent integration",
+  "dependencies": {
+    "@mariozechner/pi-coding-agent": "0.62.0"
+  }
+}

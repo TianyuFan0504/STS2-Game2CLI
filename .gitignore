@@ -1,0 +1,37 @@
+# OS files
+.DS_Store
+
+# Local secrets / machine config
+.env
+
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Frontend / agent runtime caches
+agent-harness/frontend/__pycache__/
+agent-harness/pi-agent/__pycache__/
+sts2cli/__pycache__/
+
+# Local agent state
+.agents/
+
+# Installed pi runtime dependencies
+agent-harness/pi-agent/runtime/node_modules/
+
+# Runtime logs and generated memory data
+logs/
+memory/latest
+memory/runs/
+
+# Bridge build outputs and local dotnet cache
+bridge/plugin/.dotnet-cli-home/
+bridge/plugin/bin/
+bridge/plugin/obj/
+bridge/plugin/out/
+
+# Generated bridge install bundle
+bridge/install/bridge_plugin/
+
+#md
+AGENTS.md
