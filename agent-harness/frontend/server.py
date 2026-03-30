@@ -286,6 +286,15 @@ def classify_memory_target(path: str | None = None, command: str | None = None) 
     return "memory"
 
 
+def parse_optional_int(value: str | None) -> int | None:
+    if value is None:
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    return int(text)
+
+
 @dataclass
 class ParsedPiEvent:
     kind: str
@@ -486,6 +495,46 @@ class AgentController:
             return True, result["state"], None
         except Exception as exc:  # noqa: BLE001
             return False, None, str(exc)
+
+    def search_memory_runs(self, params: dict[str, str]) -> dict[str, Any]:
+        limit = parse_optional_int(params.get("limit")) or 20
+        limit = max(1, min(limit, 100))
+        results = self._memory.v2.search_runs(
+            character=(params.get("character") or "").strip() or None,
+            result=(params.get("result") or "").strip() or None,
+            boss=(params.get("boss") or "").strip() or None,
+            death_enemy=(params.get("death_enemy") or "").strip() or None,
+            card_name=(params.get("card_name") or "").strip() or None,
+            relic_name=(params.get("relic_name") or "").strip() or None,
+            floor_min=parse_optional_int(params.get("floor_min")),
+            floor_max=parse_optional_int(params.get("floor_max")),
+            limit=limit,
+        )
+        return {
+            "ok": True,
+            "filters": {
+                "character": (params.get("character") or "").strip() or None,
+                "result": (params.get("result") or "").strip() or None,
+                "boss": (params.get("boss") or "").strip() or None,
+                "death_enemy": (params.get("death_enemy") or "").strip() or None,
+                "card_name": (params.get("card_name") or "").strip() or None,
+                "relic_name": (params.get("relic_name") or "").strip() or None,
+                "floor_min": parse_optional_int(params.get("floor_min")),
+                "floor_max": parse_optional_int(params.get("floor_max")),
+                "limit": limit,
+            },
+            "runs": results,
+        }
+
+    def get_memory_run_detail(self, run_id: str) -> dict[str, Any]:
+        detail = self._memory.v2.get_run_detail(run_id.strip())
+        if detail is None:
+            raise ValueError(f"Run not found: {run_id}")
+        return {"ok": True, "detail": detail}
+
+    def get_memory_stats(self, params: dict[str, str]) -> dict[str, Any]:
+        character = (params.get("character") or "").strip() or None
+        return {"ok": True, "stats": self._memory.v2.get_stats(character=character)}
 
     def start(self, mode: str) -> dict[str, Any]:
         if mode not in {"single", "full_auto"}:
@@ -1097,6 +1146,29 @@ class FrontendHandler(BaseHTTPRequestHandler):
             params = parse_qs(parsed.query)
             after = int(params.get("after", ["0"])[0])
             return self._send_json({"events": CONTROLLER.list_events(after)})
+        if parsed.path == "/api/memory/search":
+            params = parse_qs(parsed.query)
+            flat = {key: values[0] for key, values in params.items() if values}
+            try:
+                return self._send_json(CONTROLLER.search_memory_runs(flat))
+            except Exception as exc:  # noqa: BLE001
+                return self._send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
+        if parsed.path == "/api/memory/run":
+            params = parse_qs(parsed.query)
+            run_id = params.get("run_id", [""])[0].strip()
+            if not run_id:
+                return self._send_json({"ok": False, "error": "run_id is required"}, HTTPStatus.BAD_REQUEST)
+            try:
+                return self._send_json(CONTROLLER.get_memory_run_detail(run_id))
+            except Exception as exc:  # noqa: BLE001
+                return self._send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
+        if parsed.path == "/api/memory/stats":
+            params = parse_qs(parsed.query)
+            flat = {key: values[0] for key, values in params.items() if values}
+            try:
+                return self._send_json(CONTROLLER.get_memory_stats(flat))
+            except Exception as exc:  # noqa: BLE001
+                return self._send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
         return self._send_json({"ok": False, "error": "Not found"}, HTTPStatus.NOT_FOUND)
 
     def do_POST(self) -> None:  # noqa: N802

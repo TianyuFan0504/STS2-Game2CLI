@@ -282,6 +282,11 @@ class MemoryV2ArchiveTests(unittest.TestCase):
         relic_names = [entry["relic_name"] for entry in relic_timeline["events"]]
         self.assertEqual(relic_names, ["Vajra", "Preserved Insect"])
 
+        victory_report = (run_dir / "victory.md").read_text(encoding="utf-8")
+        self.assertIn("# Victory Report", victory_report)
+        self.assertIn("Spot Weakness", victory_report)
+        self.assertIn("Vajra", victory_report)
+
         run_tags = json.loads((run_dir / "derived" / "run_tags.json").read_text(encoding="utf-8"))
         tags = {(tag["tag_type"], tag["tag_value"]) for tag in run_tags["tags"]}
         self.assertIn(("character", "IRONCLAD"), tags)
@@ -295,6 +300,7 @@ class MemoryV2ArchiveTests(unittest.TestCase):
         self.assertEqual(len(archive_runs), 1)
         self.assertEqual(archive_runs[0]["run_id"], run_id)
         self.assertEqual(archive_runs[0]["result"], "won")
+        self.assertTrue(str(archive_runs[0]["summary_path"]).endswith("summary.md"))
 
         tagged_runs = self.store.v2.find_runs_by_tag("result", "won")
         self.assertEqual(len(tagged_runs), 1)
@@ -311,6 +317,85 @@ class MemoryV2ArchiveTests(unittest.TestCase):
         relic_events = self.store.v2.find_relic_events(relic_name="Vajra")
         self.assertEqual(len(relic_events), 1)
         self.assertEqual(relic_events[0]["op"], "add")
+
+        search_runs = self.store.v2.search_runs(card_name="Spot Weakness", relic_name="Vajra")
+        self.assertEqual(len(search_runs), 1)
+        self.assertEqual(search_runs[0]["run_id"], run_id)
+        self.assertTrue(str(search_runs[0]["report_path"]).endswith("victory.md"))
+
+        detail = self.store.v2.get_run_detail(run_id)
+        self.assertIsNotNone(detail)
+        assert detail is not None
+        self.assertEqual(detail["run"]["run_id"], run_id)
+        self.assertEqual(len(detail["recent_turns"]), 8)
+        self.assertEqual(len(detail["battles"]), 1)
+        self.assertEqual(len(detail["rewards"]), 6)
+        self.assertIn("Victory Report", detail["report_content"])
+
+        stats = self.store.v2.get_stats()
+        self.assertEqual(stats["overview"]["total_runs"], 1)
+        self.assertEqual(stats["overview"]["wins"], 1)
+        self.assertEqual(len(stats["top_cards"]), 2)
+        self.assertEqual(len(stats["top_relics"]), 2)
+
+    def test_finalized_lost_run_generates_postmortem(self) -> None:
+        combat_state = build_state(
+            "combat_play",
+            state_type="decision",
+            floor=7,
+            hp=18,
+            max_hp=80,
+            gold=140,
+            room_type="elite",
+            enemies=[{"entity_id": "lagavulin_0", "name": "Lagavulin", "hp": 112, "max_hp": 112}],
+            hand=[],
+        )
+        game_over_state = build_state(
+            "game_over",
+            state_type="decision",
+            floor=7,
+            hp=0,
+            max_hp=80,
+            gold=140,
+            game_over={"enemy_name": "Lagavulin"},
+            can_return_to_main_menu=True,
+            can_continue=False,
+            options=[{"id": "return_to_main_menu", "is_enabled": True}],
+        )
+        menu_state = build_state(
+            "menu",
+            state_type="status",
+            floor=7,
+            hp=0,
+            max_hp=80,
+            gold=140,
+            can_continue_game=False,
+            can_start_new_game=True,
+            menu={"screen": "main_menu"},
+        )
+
+        self.store.record_state(combat_state, source="iteration_start")
+        run_id = self.store.get_active_run_info()["run_id"]
+
+        self.store.prepare_turn(1, mode="single", state=combat_state)
+        self.store.record_command("end-turn", result="ok", source="agent")
+        self._write_iteration_artifacts(1)
+        self.store.record_state(game_over_state, source="iteration_end")
+        self.store.record_state(menu_state, source="iteration_end")
+
+        run_dir = self.root / "runs" / run_id
+        postmortem = (run_dir / "postmortem.md").read_text(encoding="utf-8")
+        self.assertIn("# Postmortem", postmortem)
+        self.assertIn("Lagavulin", postmortem)
+
+        search_runs = self.store.v2.search_runs(result="lost", death_enemy="Lagavulin")
+        self.assertEqual(len(search_runs), 1)
+        self.assertEqual(search_runs[0]["run_id"], run_id)
+
+        detail = self.store.v2.get_run_detail(run_id)
+        self.assertIsNotNone(detail)
+        assert detail is not None
+        self.assertIn("Postmortem", detail["report_content"])
 
 
 if __name__ == "__main__":

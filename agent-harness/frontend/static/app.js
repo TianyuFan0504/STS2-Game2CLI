@@ -32,6 +32,23 @@ const memoryFetchCount = document.getElementById("memoryFetchCount");
 const memoryFetchHint = document.getElementById("memoryFetchHint");
 const memoryFetchCategories = document.getElementById("memoryFetchCategories");
 const memoryFetchPane = document.getElementById("memoryFetchPane");
+const memorySearchCharacter = document.getElementById("memorySearchCharacter");
+const memorySearchResult = document.getElementById("memorySearchResult");
+const memorySearchBoss = document.getElementById("memorySearchBoss");
+const memorySearchDeathEnemy = document.getElementById("memorySearchDeathEnemy");
+const memorySearchCard = document.getElementById("memorySearchCard");
+const memorySearchRelic = document.getElementById("memorySearchRelic");
+const memorySearchFloorMin = document.getElementById("memorySearchFloorMin");
+const memorySearchFloorMax = document.getElementById("memorySearchFloorMax");
+const memorySearchLimit = document.getElementById("memorySearchLimit");
+const memorySearchBtn = document.getElementById("memorySearchBtn");
+const memorySearchResults = document.getElementById("memorySearchResults");
+const memoryRunIdInput = document.getElementById("memoryRunIdInput");
+const memoryRunLoadBtn = document.getElementById("memoryRunLoadBtn");
+const memoryRunDetailPane = document.getElementById("memoryRunDetailPane");
+const memoryStatsCharacter = document.getElementById("memoryStatsCharacter");
+const memoryStatsBtn = document.getElementById("memoryStatsBtn");
+const memoryStatsPane = document.getElementById("memoryStatsPane");
 
 let lastEventId = 0;
 let stateCache = null;
@@ -83,6 +100,10 @@ function formatDisplayPath(path) {
   const marker = "STS2CLI/";
   const index = normalized.indexOf(marker);
   return index >= 0 ? normalized.slice(index) : normalized;
+}
+
+function formatJsonBlock(value) {
+  return JSON.stringify(value, null, 2);
 }
 
 function appendTimelineItem({ time, label, text, tone = "neutral" }) {
@@ -212,6 +233,164 @@ function renderMemoryFetches(status) {
       return `## ${category}\n${body}`;
     });
   memoryFetchPane.textContent = sections.join("\n\n");
+}
+
+function buildMemorySearchQuery() {
+  const params = new URLSearchParams();
+  const mappings = [
+    ["character", memorySearchCharacter.value],
+    ["result", memorySearchResult.value],
+    ["boss", memorySearchBoss.value],
+    ["death_enemy", memorySearchDeathEnemy.value],
+    ["card_name", memorySearchCard.value],
+    ["relic_name", memorySearchRelic.value],
+    ["floor_min", memorySearchFloorMin.value],
+    ["floor_max", memorySearchFloorMax.value],
+    ["limit", memorySearchLimit.value],
+  ];
+  for (const [key, value] of mappings) {
+    if (String(value || "").trim()) {
+      params.set(key, String(value).trim());
+    }
+  }
+  return params.toString();
+}
+
+function renderMemorySearchResults(payload) {
+  const runs = payload.runs || [];
+  memorySearchResults.replaceChildren();
+  if (runs.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "archive-empty";
+    empty.textContent = "No archived runs matched.";
+    memorySearchResults.appendChild(empty);
+    return;
+  }
+  for (const run of runs) {
+    const item = document.createElement("article");
+    item.className = "archive-result";
+
+    const header = document.createElement("div");
+    header.className = "archive-result-header";
+
+    const title = document.createElement("div");
+    title.className = "archive-result-title";
+    title.textContent = `${run.run_id} | ${run.character || "-"} A${run.ascension ?? "-"}`;
+
+    const action = document.createElement("button");
+    action.type = "button";
+    action.className = "ghost archive-open-btn";
+    action.textContent = "Load";
+    action.dataset.runId = run.run_id;
+
+    header.appendChild(title);
+    header.appendChild(action);
+
+    const meta = document.createElement("div");
+    meta.className = "archive-result-meta";
+    meta.textContent = `result=${run.result || "-"} floor=${run.final_floor ?? "-"} boss=${run.boss || "-"} ended=${run.ended_at || "-"}`;
+
+    item.appendChild(header);
+    item.appendChild(meta);
+    memorySearchResults.appendChild(item);
+  }
+}
+
+function formatTurnSummary(turn) {
+  const commands = Array.isArray(turn.commands) ? turn.commands.map((item) => item.command).filter(Boolean) : [];
+  return `- ${turn.turn_id}: ${turn.decision_before || "-"} -> ${turn.decision_after || "-"} | ${commands.join(", ") || "(no commands)"}`;
+}
+
+function renderMemoryRunDetail(payload) {
+  const detail = payload.detail || {};
+  const run = detail.run || {};
+  const battles = Array.isArray(detail.battles) ? detail.battles : [];
+  const rewards = Array.isArray(detail.rewards) ? detail.rewards : [];
+  const turns = Array.isArray(detail.recent_turns) ? detail.recent_turns : [];
+  const lines = [
+    `Run: ${run.run_id || "-"}`,
+    `Character: ${run.character || "-"} A${run.ascension ?? "-"}`,
+    `Result: ${run.result || "-"} | Floor: ${run.final_floor ?? "-"} | Boss: ${run.boss || "-"}`,
+    `Started: ${run.started_at || "-"}`,
+    `Ended: ${run.ended_at || "-"}`,
+  ];
+  if (run.report_path) {
+    lines.push(`Report: ${formatDisplayPath(run.report_path)}`);
+  }
+  lines.push("");
+  lines.push("Recent Turns:");
+  if (turns.length > 0) {
+    lines.push(...turns.map(formatTurnSummary));
+  } else {
+    lines.push("- (none)");
+  }
+  lines.push("");
+  lines.push("Battles:");
+  if (battles.length > 0) {
+    lines.push(...battles.map((battle) => `- ${battle.battle_id}: floor ${battle.floor ?? "-"} | ${battle.result || "-"} | ${(battle.enemy_names || []).join(", ") || "-"}`));
+  } else {
+    lines.push("- (none)");
+  }
+  lines.push("");
+  lines.push("Rewards:");
+  if (rewards.length > 0) {
+    lines.push(...rewards.map((reward) => `- ${reward.reward_id}: floor ${reward.floor ?? "-"} | ${reward.source || "-"} | ${reward.chosen_command || "-"}`));
+  } else {
+    lines.push("- (none)");
+  }
+  lines.push("");
+  lines.push("Derived:");
+  lines.push(formatJsonBlock(detail.derived || {}));
+  if (detail.report_content) {
+    lines.push("");
+    lines.push("Run Report:");
+    lines.push(detail.report_content.trim());
+  }
+  memoryRunDetailPane.textContent = lines.join("\n");
+}
+
+function renderMemoryStats(payload) {
+  memoryStatsPane.textContent = formatJsonBlock(payload.stats || {});
+}
+
+async function searchMemoryArchive() {
+  try {
+    const query = buildMemorySearchQuery();
+    const payload = await api(`/api/memory/search${query ? `?${query}` : ""}`);
+    renderMemorySearchResults(payload);
+  } catch (error) {
+    memorySearchResults.replaceChildren();
+    const empty = document.createElement("div");
+    empty.className = "archive-empty";
+    empty.textContent = String(error);
+    memorySearchResults.appendChild(empty);
+  }
+}
+
+async function loadMemoryRunDetail(runId = memoryRunIdInput.value) {
+  const value = String(runId || "").trim();
+  if (!value) {
+    memoryRunDetailPane.textContent = "Run ID is required.";
+    return;
+  }
+  try {
+    const payload = await api(`/api/memory/run?run_id=${encodeURIComponent(value)}`);
+    memoryRunIdInput.value = value;
+    renderMemoryRunDetail(payload);
+  } catch (error) {
+    memoryRunDetailPane.textContent = String(error);
+  }
+}
+
+async function refreshMemoryStats() {
+  try {
+    const value = String(memoryStatsCharacter.value || "").trim();
+    const query = value ? `?character=${encodeURIComponent(value)}` : "";
+    const payload = await api(`/api/memory/stats${query}`);
+    renderMemoryStats(payload);
+  } catch (error) {
+    memoryStatsPane.textContent = String(error);
+  }
 }
 
 function updateSummary(status) {
@@ -420,6 +599,20 @@ document.getElementById("fullAutoBtn").addEventListener("click", () => startMode
 document.getElementById("pauseBtn").addEventListener("click", () => simplePost("/api/agent/pause"));
 document.getElementById("resumeBtn").addEventListener("click", () => simplePost("/api/agent/resume"));
 document.getElementById("stopBtn").addEventListener("click", () => simplePost("/api/agent/stop"));
+memorySearchBtn.addEventListener("click", () => searchMemoryArchive());
+memoryRunLoadBtn.addEventListener("click", () => loadMemoryRunDetail());
+memoryStatsBtn.addEventListener("click", () => refreshMemoryStats());
+memorySearchResults.addEventListener("click", (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) {
+    return;
+  }
+  const runId = target.dataset.runId;
+  if (!runId) {
+    return;
+  }
+  loadMemoryRunDetail(runId);
+});
 thinkingScrollToggle.addEventListener("click", () => {
   thinkingAutoScroll = !thinkingAutoScroll;
   if (thinkingAutoScroll) {
@@ -444,6 +637,8 @@ async function init() {
   syncWarningToggle();
   await refreshStatus();
   await refreshState();
+  await refreshMemoryStats();
+  await searchMemoryArchive();
   setInterval(refreshStatus, 1000);
   setInterval(refreshState, 2000);
   setInterval(pollEvents, 700);

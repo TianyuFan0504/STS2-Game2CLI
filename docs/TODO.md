@@ -45,8 +45,8 @@
 
 - 补全 battle enemy / room / signature 字段
 - 补全 reward 的完整 replay 语义，而不只是当前 turn 提取
-- 增加局结束总结
-- 扩展跨局检索和经验聚合
+- 扩展跨局检索和更深入的经验聚合
+- 增加 lessons / strategy extraction
 
 ## 参考文档
 

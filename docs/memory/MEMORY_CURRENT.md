@@ -239,11 +239,19 @@ memory/
 - 按 `relic_id` / `relic_name` 查 relic events
 - 按 tag 查 runs
 - 按 `run_id` / `result` 查 battles
+- 按组合条件搜索 runs
+- 读取单个 run 的 replay/detail 视图
+- 基础 archive stats
+
+前端当前已经有：
+
+- replay / search API
+- 基础 archive stats API
+- 控制台里的 archive search / replay / stats 面板
 
 当前还没有：
 
-- 复杂聚合统计
-- 前端回放查询入口
+- 更深入的聚合统计
 
 ## 5. 当前限制
 
@@ -254,10 +262,11 @@ memory/
 - 局结束后的 turn / reward / battle / derived 归档
 - 最小跨局索引
 - 卡牌 / 遗物 delta 时间线与索引
+- `victory.md` / `postmortem.md`
+- 前端 replay / search / stats 面板
 
 但还没有完全做到：
 
 - 更细的 battle enemy 结构
 - 完整 reward replay 与多阶段选择回放
 - 跨局 lessons 抽取
-- 面向前端的 replay / search API

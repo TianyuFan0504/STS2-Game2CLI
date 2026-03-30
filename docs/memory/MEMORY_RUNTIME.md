@@ -441,7 +441,9 @@ V2 只读取 V1 已经落盘的数据，不直接读前端 live 内存。
    - `route_timeline.json`
    - `resource_timeline.json`
    - `run_tags.json`
-8. 刷新 `index.sqlite`
+8. 生成：
+   - `victory.md` 或 `postmortem.md`
+9. 刷新 `index.sqlite`
 
 ## 4.4 `turns/` 如何生成
 
@@ -632,8 +634,11 @@ V2 当前已经提供最小查询接口：
 - `find_battles(...)`
 - `find_card_events(...)`
 - `find_relic_events(...)`
+- `search_runs(...)`
+- `get_run_detail(...)`
+- `get_stats(...)`
 
-这些查询目前主要给后端和测试使用，还没有前端 replay/search UI。
+这些查询现在已经接到了前端控制服务的 replay/search/stats API。
 
 ## 5. 当前一致性边界
 
@@ -678,8 +683,7 @@ V2 当前已经提供最小查询接口：
 - battle 的更细 enemy / room 结构
 - reward 的完整 replay 语义
 - 更丰富的 deck / relic 语义提取
-- 聚合统计
-- 前端 replay / search API
+- 更深入的聚合统计
 - 跨局 lesson 抽取
 
 ## 7. 一句话总结

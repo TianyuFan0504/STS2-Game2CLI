@@ -68,12 +68,18 @@ V2 依赖 V1 已经成立：
   - `run_relics`
   - `run_tags`
   - `run_battles`
+- 局结束后当前还会生成：
+  - `victory.md`
+  - `postmortem.md`
+- 前端当前已经接入：
+  - replay / search API
+  - 基础 archive stats API
 
 当前限制：
 
 - `turns/` 主要基于 V1 ledger 和 turn markers 重建
 - `battles/` / `rewards/` 目前是 Phase-1 摘要，字段还不完整
-- 还没有 `run_cards` / `run_relics`
+- 更深入的聚合统计和 lessons 仍未完成
 
 ## 4. 目录结构
 

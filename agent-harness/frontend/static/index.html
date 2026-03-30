@@ -98,6 +98,43 @@
         </div>
       </section>
 
+      <section class="dashboard archive-grid">
+        <div class="card archive-card">
+          <div class="panel-header">
+            <h2>Memory Archive</h2>
+            <button id="memorySearchBtn" type="button" class="ghost panel-toggle">Search</button>
+          </div>
+          <div class="archive-form-grid">
+            <label><span class="label">Character</span><input id="memorySearchCharacter" type="text" /></label>
+            <label><span class="label">Result</span><input id="memorySearchResult" type="text" /></label>
+            <label><span class="label">Boss</span><input id="memorySearchBoss" type="text" /></label>
+            <label><span class="label">Death Enemy</span><input id="memorySearchDeathEnemy" type="text" /></label>
+            <label><span class="label">Card</span><input id="memorySearchCard" type="text" /></label>
+            <label><span class="label">Relic</span><input id="memorySearchRelic" type="text" /></label>
+            <label><span class="label">Floor Min</span><input id="memorySearchFloorMin" type="number" /></label>
+            <label><span class="label">Floor Max</span><input id="memorySearchFloorMax" type="number" /></label>
+            <label><span class="label">Limit</span><input id="memorySearchLimit" type="number" value="20" /></label>
+          </div>
+          <div id="memorySearchResults" class="archive-results"></div>
+        </div>
+
+        <div class="card archive-card">
+          <div class="panel-header">
+            <h2>Replay And Stats</h2>
+            <div class="button-row compact">
+              <button id="memoryRunLoadBtn" type="button" class="ghost panel-toggle">Load Run</button>
+              <button id="memoryStatsBtn" type="button" class="ghost panel-toggle">Refresh Stats</button>
+            </div>
+          </div>
+          <div class="archive-form-grid single-column">
+            <label><span class="label">Run ID</span><input id="memoryRunIdInput" type="text" /></label>
+            <label><span class="label">Stats Character Filter</span><input id="memoryStatsCharacter" type="text" /></label>
+          </div>
+          <pre id="memoryRunDetailPane" class="mono archive-pane"></pre>
+          <pre id="memoryStatsPane" class="mono archive-pane"></pre>
+        </div>
+      </section>
+
       <section class="streams">
         <div class="card panel">
           <div class="panel-header">

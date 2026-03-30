@@ -111,9 +111,19 @@ class MemoryV2Archive:
                 "tags": run_tags,
             },
         )
+        self._write_run_report(
+            run_dir=run_dir,
+            session=session,
+            final_summary=final_summary,
+            final_state=final_state,
+            battles=battles,
+            rewards=rewards,
+            deck_timeline=deck_timeline,
+            relic_timeline=relic_timeline,
+        )
 
         boss_name = self._extract_boss_name(final_state)
-        death_enemy = self._extract_death_enemy(final_state)
+        death_enemy = self._infer_death_enemy(final_state, battles)
 
         with closing(self._connect()) as conn:
             conn.execute(
@@ -367,6 +377,181 @@ class MemoryV2Archive:
         with closing(self._connect()) as conn:
             rows = conn.execute(query, params).fetchall()
         return [dict(row) for row in rows]
+
+    def search_runs(
+        self,
+        *,
+        character: str | None = None,
+        result: str | None = None,
+        boss: str | None = None,
+        death_enemy: str | None = None,
+        card_name: str | None = None,
+        relic_name: str | None = None,
+        floor_min: int | None = None,
+        floor_max: int | None = None,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        query = (
+            "SELECT run_id, started_at, ended_at, character, ascension, result, final_act, "
+            "final_floor, death_enemy, boss, final_hp, final_gold, summary_path, events_path "
+            "FROM runs WHERE 1 = 1"
+        )
+        params: list[Any] = []
+        if character:
+            query += " AND character = ?"
+            params.append(character)
+        if result:
+            query += " AND result = ?"
+            params.append(result)
+        if boss:
+            query += " AND boss = ?"
+            params.append(boss)
+        if death_enemy:
+            query += " AND death_enemy = ?"
+            params.append(death_enemy)
+        if floor_min is not None:
+            query += " AND final_floor >= ?"
+            params.append(floor_min)
+        if floor_max is not None:
+            query += " AND final_floor <= ?"
+            params.append(floor_max)
+        if card_name:
+            query += " AND EXISTS (SELECT 1 FROM run_cards WHERE run_cards.run_id = runs.run_id AND run_cards.card_name = ?)"
+            params.append(card_name)
+        if relic_name:
+            query += " AND EXISTS (SELECT 1 FROM run_relics WHERE run_relics.run_id = runs.run_id AND run_relics.relic_name = ?)"
+            params.append(relic_name)
+        query += " ORDER BY ended_at DESC LIMIT ?"
+        params.append(limit)
+        with closing(self._connect()) as conn:
+            rows = conn.execute(query, params).fetchall()
+        results = [dict(row) for row in rows]
+        for row in results:
+            row["report_path"] = self._report_path_for_run(row)
+        return results
+
+    def get_run_detail(self, run_id: str) -> dict[str, Any] | None:
+        with closing(self._connect()) as conn:
+            row = conn.execute(
+                """
+                SELECT run_id, started_at, ended_at, character, ascension, result, final_act,
+                       final_floor, death_enemy, boss, final_hp, final_gold, summary_path, events_path
+                FROM runs
+                WHERE run_id = ?
+                """,
+                (run_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        run = dict(row)
+        run["report_path"] = self._report_path_for_run(run)
+        run_dir = self._run_dir_from_summary_path(run.get("summary_path"))
+        if run_dir is None:
+            return {"run": run}
+
+        summary_path = run_dir / "memory" / "summary.md"
+        report_path = Path(run["report_path"]) if run.get("report_path") else None
+        turn_files = sorted((run_dir / "turns").glob("turn_*.json"))
+        battle_files = sorted((run_dir / "battles").glob("battle_*.json"))
+        reward_files = sorted((run_dir / "rewards").glob("reward_*.json"))
+        return {
+            "run": run,
+            "summary_content": self._read_text(summary_path),
+            "report_content": self._read_text(report_path) if report_path is not None else "",
+            "recent_turns": [self._load_json_dict(path) for path in turn_files[-8:] if self._load_json_dict(path) is not None],
+            "battles": [self._load_json_dict(path) for path in battle_files if self._load_json_dict(path) is not None],
+            "rewards": [self._load_json_dict(path) for path in reward_files if self._load_json_dict(path) is not None],
+            "derived": {
+                "deck_timeline": self._load_json_dict(run_dir / "derived" / "deck_timeline.json"),
+                "relic_timeline": self._load_json_dict(run_dir / "derived" / "relic_timeline.json"),
+                "route_timeline": self._load_json_dict(run_dir / "derived" / "route_timeline.json"),
+                "resource_timeline": self._load_json_dict(run_dir / "derived" / "resource_timeline.json"),
+                "run_tags": self._load_json_dict(run_dir / "derived" / "run_tags.json"),
+            },
+        }
+
+    def get_stats(self, *, character: str | None = None) -> dict[str, Any]:
+        where = " WHERE 1 = 1"
+        params: list[Any] = []
+        if character:
+            where += " AND character = ?"
+            params.append(character)
+        with closing(self._connect()) as conn:
+            overview_row = conn.execute(
+                f"""
+                SELECT
+                    COUNT(*) AS total_runs,
+                    SUM(CASE WHEN result = 'won' THEN 1 ELSE 0 END) AS wins,
+                    SUM(CASE WHEN result = 'lost' THEN 1 ELSE 0 END) AS losses,
+                    SUM(CASE WHEN result = 'abandoned' THEN 1 ELSE 0 END) AS abandoned,
+                    ROUND(AVG(final_floor), 2) AS avg_final_floor
+                FROM runs
+                {where}
+                """,
+                params,
+            ).fetchone()
+            by_character = conn.execute(
+                """
+                SELECT
+                    character,
+                    COUNT(*) AS total_runs,
+                    SUM(CASE WHEN result = 'won' THEN 1 ELSE 0 END) AS wins,
+                    ROUND(AVG(final_floor), 2) AS avg_final_floor
+                FROM runs
+                GROUP BY character
+                ORDER BY total_runs DESC, character ASC
+                """,
+            ).fetchall()
+            by_boss = conn.execute(
+                f"""
+                SELECT
+                    COALESCE(boss, '(unknown)') AS boss,
+                    COUNT(*) AS total_runs,
+                    SUM(CASE WHEN result = 'won' THEN 1 ELSE 0 END) AS wins
+                FROM runs
+                {where}
+                GROUP BY COALESCE(boss, '(unknown)')
+                ORDER BY total_runs DESC, boss ASC
+                LIMIT 10
+                """,
+                params,
+            ).fetchall()
+            top_cards = conn.execute(
+                f"""
+                SELECT run_cards.card_name, COUNT(*) AS count
+                FROM run_cards
+                JOIN runs ON runs.run_id = run_cards.run_id
+                {where} AND run_cards.op = 'add'
+                GROUP BY run_cards.card_name
+                ORDER BY count DESC, run_cards.card_name ASC
+                LIMIT 10
+                """,
+                params,
+            ).fetchall()
+            top_relics = conn.execute(
+                f"""
+                SELECT run_relics.relic_name, COUNT(*) AS count
+                FROM run_relics
+                JOIN runs ON runs.run_id = run_relics.run_id
+                {where} AND run_relics.op = 'add'
+                GROUP BY run_relics.relic_name
+                ORDER BY count DESC, run_relics.relic_name ASC
+                LIMIT 10
+                """,
+                params,
+            ).fetchall()
+        overview = dict(overview_row) if overview_row is not None else {}
+        total_runs = int(overview.get("total_runs") or 0)
+        wins = int(overview.get("wins") or 0)
+        overview["win_rate"] = round((wins / total_runs) * 100, 2) if total_runs else 0.0
+        return {
+            "filter_character": character,
+            "overview": overview,
+            "by_character": [dict(row) for row in by_character],
+            "by_boss": [dict(row) for row in by_boss],
+            "top_cards": [dict(row) for row in top_cards],
+            "top_relics": [dict(row) for row in top_relics],
+        }
 
     def _build_turn_files(self, turns_dir: Path, session: dict[str, Any], ledger: list[dict[str, Any]]) -> list[dict[str, Any]]:
         turns: list[dict[str, Any]] = []
@@ -761,6 +946,18 @@ class MemoryV2Archive:
                 return str(value)
         return None
 
+    def _infer_death_enemy(self, final_state: dict[str, Any], battles: list[dict[str, Any]]) -> str | None:
+        direct = self._extract_death_enemy(final_state)
+        if direct:
+            return direct
+        for battle in reversed(battles):
+            if str(battle.get("result") or "") != "lost":
+                continue
+            enemy_names = battle.get("enemy_names")
+            if isinstance(enemy_names, list) and enemy_names:
+                return str(enemy_names[0])
+        return None
+
     def _normalize_state_details(self, value: Any) -> dict[str, Any]:
         return dict(value) if isinstance(value, dict) else {}
 
@@ -1120,6 +1317,119 @@ class MemoryV2Archive:
         if final_decision and final_decision not in COMBAT_DECISIONS:
             return "finished"
         return "ongoing"
+
+    def _write_run_report(
+        self,
+        *,
+        run_dir: Path,
+        session: dict[str, Any],
+        final_summary: dict[str, Any],
+        final_state: dict[str, Any],
+        battles: list[dict[str, Any]],
+        rewards: list[dict[str, Any]],
+        deck_timeline: dict[str, Any],
+        relic_timeline: dict[str, Any],
+    ) -> None:
+        result = str(session.get("result") or "unknown")
+        target = run_dir / ("victory.md" if result == "won" else "postmortem.md")
+        other = run_dir / ("postmortem.md" if result == "won" else "victory.md")
+        if other.exists():
+            other.unlink()
+
+        card_events = deck_timeline.get("events") if isinstance(deck_timeline.get("events"), list) else []
+        relic_events = relic_timeline.get("events") if isinstance(relic_timeline.get("events"), list) else []
+        card_names = [str(event.get("card_name")) for event in card_events if isinstance(event, dict) and event.get("card_name")]
+        relic_names = [str(event.get("relic_name")) for event in relic_events if isinstance(event, dict) and event.get("relic_name")]
+        boss_name = self._extract_boss_name(final_state) or "-"
+        death_enemy = self._infer_death_enemy(final_state, battles) or "-"
+        title = "Victory Report" if result == "won" else "Postmortem"
+        lines = [
+            f"# {title}",
+            "",
+            f"- Run ID: {session.get('run_id', '-')}",
+            f"- Character: {session.get('character', '-')}",
+            f"- Ascension: {session.get('ascension', '-')}",
+            f"- Result: {result}",
+            f"- Started At: {session.get('started_at', '-')}",
+            f"- Ended At: {session.get('ended_at', '-')}",
+            f"- Final Act: {final_summary.get('act', session.get('latest_act', '-'))}",
+            f"- Final Floor: {final_summary.get('floor', session.get('latest_floor', '-'))}",
+            f"- Final HP: {final_summary.get('hp', session.get('last_hp', '-'))} / {final_summary.get('max_hp', session.get('last_max_hp', '-'))}",
+            f"- Final Gold: {final_summary.get('gold', session.get('last_gold', '-'))}",
+            f"- Boss: {boss_name}",
+            f"- Death Enemy: {death_enemy}",
+            "",
+            "## Archive Summary",
+            f"- Battles: {len(battles)}",
+            f"- Rewards: {len(rewards)}",
+            f"- Card Events: {len(card_events)}",
+            f"- Relic Events: {len(relic_events)}",
+            "",
+            "## Recent Battles",
+        ]
+        if battles:
+            for battle in battles[-5:]:
+                lines.append(
+                    f"- floor {battle.get('floor', '-')}: {battle.get('result', '-')} | enemies: {', '.join(battle.get('enemy_names') or []) or '-'} | hp {battle.get('hp_before', '-')} -> {battle.get('hp_after', '-')}"
+                )
+        else:
+            lines.append("- (none)")
+
+        lines.extend(["", "## Notable Rewards"])
+        if rewards:
+            for reward in rewards[-8:]:
+                chosen = reward.get("chosen")
+                if isinstance(chosen, dict):
+                    chosen_text = chosen.get("card_name") or chosen.get("relic_name") or chosen.get("name") or chosen.get("type") or reward.get("chosen_command") or "-"
+                else:
+                    chosen_text = reward.get("chosen_command") or "-"
+                lines.append(
+                    f"- floor {reward.get('floor', '-')}: {reward.get('source', '-')} -> {chosen_text}"
+                )
+        else:
+            lines.append("- (none)")
+
+        lines.extend(["", "## Card Delta"])
+        if card_names:
+            for name in card_names[-10:]:
+                lines.append(f"- {name}")
+        else:
+            lines.append("- (none)")
+
+        lines.extend(["", "## Relic Delta"])
+        if relic_names:
+            for name in relic_names[-10:]:
+                lines.append(f"- {name}")
+        else:
+            lines.append("- (none)")
+
+        target.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    def _report_path_for_run(self, run_row: dict[str, Any]) -> str | None:
+        run_dir = self._run_dir_from_summary_path(run_row.get("summary_path"))
+        if run_dir is None:
+            return None
+        for name in ("victory.md", "postmortem.md"):
+            path = run_dir / name
+            if path.exists():
+                return str(path)
+        return None
+
+    def _run_dir_from_summary_path(self, summary_path: Any) -> Path | None:
+        if not isinstance(summary_path, str) or not summary_path:
+            return None
+        path = Path(summary_path)
+        if path.name != "summary.md":
+            return None
+        return path.parent.parent
+
+    def _read_text(self, path: Path | None) -> str:
+        if path is None or not path.exists():
+            return ""
+        try:
+            return path.read_text(encoding="utf-8")
+        except OSError:
+            return ""
 
     def _ensure_schema(self) -> None:
         with closing(self._connect()) as conn:
