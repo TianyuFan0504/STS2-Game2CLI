@@ -1,6 +1,6 @@
 ---
 name: sts2-v3-workspace
-description: Use the STS2 Memory V3 workspace as a free-form Markdown notebook for gameplay. Use when Codex wants to store, update, or read long-lived notes, plans, observations, heuristics, reminders, experiments, or strategy ideas during or between runs. The workspace root is `memory/global_memory/`. Only `.md` files belong there. Do not impose a fixed schema or template unless the task itself benefits from one.
+description: Use the STS2 Memory V3 workspace as a free-form Markdown notebook for gameplay. Use when you wants to store, update, or read long-lived notes, plans, observations, heuristics, reminders, experiments, or strategy ideas during or between runs. The workspace root is `memory/global_memory/`. Only `.md` files belong there. Do not impose a fixed schema or template unless the task itself benefits from one.
 ---
 
 # STS2 V3 Workspace
@@ -35,12 +35,6 @@ Use this skill when any of these are useful:
 - keep strategy reminders for a character, relic, or deck pattern
 - store free-form thoughts that do not fit V1 or V2 structures
 
-Do not use this skill when:
-
-- current `sts2 state` alone is enough
-- V1 short-term summary is enough
-- V2 structured archive is better suited for historical lookup
-
 ## Query Pattern
 
 Before creating a new note, first inspect what already exists:
@@ -53,6 +47,12 @@ If you need text search:
 
 ```bash
 rg -n "<query>" memory/global_memory
+```
+
+If you want a grep-style example:
+
+```bash
+grep -RIn "<query>" memory/global_memory
 ```
 
 If you need to read one file:
