@@ -1,0 +1,4 @@
+interface:
+  display_name: "STS2 V2 Memory"
+  short_description: "Inspect and query STS2 V2 memory"
+  default_prompt: "Use $sts2-v2-memory to inspect STS2 V2 memory artifacts and query historical run data from `memory/archive/index.sqlite` before making cross-run conclusions."
