@@ -1,15 +1,15 @@
 ---
 name: sts2-v2-memory
-description: Inspect and use STS2 Memory V2 artifacts and archive indexes for historical run analysis. Use when Codex needs cross-run evidence, wants to query `memory/archive/index.sqlite`, inspect completed-run `turns/`, `battles/`, `rewards/`, or `derived/` files, explain what past runs show, or debug how Memory V2 materialized a run. Do not use for normal single-run gameplay decisions that can rely on current `sts2 state` and V1 short-term summary alone.
+description: Query STS2 Memory V2 as a library of experience from previous runs so the gameplay agent can make better decisions. Use when Codex should look up past battles, rewards, card and relic outcomes, inspect completed-run `turns/`, `battles/`, `rewards/`, or `derived/` files, or query `memory/archive/index.sqlite` for cross-run evidence before deciding what to do next.
 ---
 
 # STS2 V2 Memory
 
 ## Overview
 
-Use this skill to read the repository's completed-run memory archive.
+Use this skill as a searchable archive of experience from previous runs.
 
-Prefer it when the task is about:
+The goal is not just to inspect files. The goal is to let the gameplay agent look up what happened in earlier runs and use that evidence to make better decisions in the current one.
 
 - historical runs
 - cross-run patterns
@@ -17,17 +17,11 @@ Prefer it when the task is about:
 - explaining what Memory V2 currently stores
 - checking whether V2 materialized a completed run correctly
 
-Do not use it for normal gameplay control when the current `sts2 state` and current-run `memory/summary.md` are enough.
-
 ## Source Selection
 
 Choose the source of truth before querying:
 
-1. **Active run, immediate gameplay context**
-   Use current `sts2 state` and current-run V1 summary.
-   Do not assume V2 is current for an active run.
-
-2. **Completed run, detailed inspection**
+1. **Completed run, detailed inspection**
    Read files under `memory/runs/<run_id>/`.
    Prefer:
    - `turns/*.json` for per-iteration reasoning and commands

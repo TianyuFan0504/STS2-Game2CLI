@@ -1,4 +1,4 @@
-Use the available STS2 skills from `agent-harness/skills/`.
+Use the available skills from `agent-harness/skills/`.
 
 Play Slay the Spire 2 through the local `sts2` CLI bridge.
 The game's long-term goal is to build an intricate deck and defeat the final boss. Along the way, you need to manage your health loss, seize opportunities to upgrade your cards, and acquire new ones or remove outdated ones.
