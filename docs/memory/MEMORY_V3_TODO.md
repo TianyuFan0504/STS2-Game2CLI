@@ -19,7 +19,7 @@ V3 的核心很简单：
 
 ### 1. 工作区目录
 
-- 已确定目录名：`memory/globao_memory/`
+- 已确定目录名：`memory/global_memory/`
 - 评估是否真的需要 `latest` 之类的辅助入口
 
 ### 2. 文件约束

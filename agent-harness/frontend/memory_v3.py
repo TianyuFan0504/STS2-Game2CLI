@@ -8,7 +8,7 @@ from typing import Any
 class MemoryV3Workspace:
     def __init__(self, root: Path):
         self.root = root
-        self.workspace_dir = root / "globao_memory"
+        self.workspace_dir = root / "global_memory"
         self.workspace_dir.mkdir(parents=True, exist_ok=True)
 
     def status(self) -> dict[str, Any]:

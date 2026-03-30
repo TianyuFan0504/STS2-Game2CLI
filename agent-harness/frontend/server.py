@@ -271,7 +271,7 @@ def classify_memory_target(path: str | None = None, command: str | None = None) 
     candidate = (path or command or "").replace("\\", "/").lower()
     if not candidate:
         return "memory"
-    if "/globao_memory/" in candidate:
+    if "/global_memory/" in candidate:
         return "v3"
     if "index.sqlite" in candidate or "sqlite3 " in candidate:
         return "sqlite"

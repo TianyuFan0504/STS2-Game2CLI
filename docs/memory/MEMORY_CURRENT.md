@@ -10,7 +10,7 @@
 memory/
 ├── archive/
 │   └── index.sqlite
-├── globao_memory/
+├── global_memory/
 ├── latest -> runs/<run_id>
 └── runs/
     └── <run_id>/
@@ -42,7 +42,7 @@ memory/
 
 - `memory/runs/<run_id>/...` 是单局事实数据
 - `memory/archive/index.sqlite` 是跨局索引
-- `memory/globao_memory/` 是 V3 的自由 Markdown 工作区
+- `memory/global_memory/` 是 V3 的自由 Markdown 工作区
 - `memory/latest` 指向最近一个 run 目录
 
 ## 2. V1 当前行为
@@ -277,7 +277,7 @@ memory/
 
 当前 V3 已开始实现，定位是一个自由 Markdown 工作区：
 
-- 目录固定为 `memory/globao_memory/`
+- 目录固定为 `memory/global_memory/`
 - 允许子目录
 - 正常文件只允许 `.md`
 - 非 Markdown 文件会被视为无效工作区内容并在前端状态里标出来
@@ -291,7 +291,7 @@ memory/
 
 当前 agent 的使用边界是：
 
-- 可以自由查询 / 修改 / 创建 `memory/globao_memory/` 下的 `.md`
+- 可以自由查询 / 修改 / 创建 `memory/global_memory/` 下的 `.md`
 - 不要求固定模板
 - 不要求固定命名规则
 

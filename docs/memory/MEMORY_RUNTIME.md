@@ -72,7 +72,7 @@
 
 职责：
 
-- 管理 `memory/globao_memory/`
+- 管理 `memory/global_memory/`
 - 只把 `.md` 视为合法工作区文件
 - 提供工作区状态、搜索和文件读取能力
 

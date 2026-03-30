@@ -56,4 +56,4 @@
 - 基础 `run_battles` / `run_tags` / `run_cards` / `run_relics` 索引
 - `victory.md` / `postmortem.md`
 - replay / search / stats 前端与 API
-- V3 工作区 `memory/globao_memory/`
+- V3 工作区 `memory/global_memory/`

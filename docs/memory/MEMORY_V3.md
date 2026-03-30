@@ -56,7 +56,7 @@ V3 工作区只强调三个约束：
 当前 V3 已经落地到固定目录：
 
 ```text
-memory/globao_memory/
+memory/global_memory/
 ```
 
 目录中的文件只要求：
