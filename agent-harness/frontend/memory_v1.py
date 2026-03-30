@@ -358,6 +358,7 @@ class MemoryV1Store:
             "iteration": iteration,
             "mode": mode,
             "state_summary": summary,
+            "state": state if isinstance(state, dict) else None,
         }
         if self.active is None:
             self.pending_turn_start = payload

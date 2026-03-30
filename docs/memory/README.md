@@ -22,6 +22,10 @@
   - 当前仓库已经实际落地的 memory 状态
   - 用来区分“现在有什么”和“未来设计想做什么”
 
+- `MEMORY_RUNTIME.md`
+  - 当前代码里的 memory 运行机制说明
+  - 解释 frontend、V1、V2 在运行时如何协作
+
 - `MEMORY_V1_TODO.md`
   - V1 实现待办
   - 聚焦单局短期记忆
@@ -40,4 +44,4 @@
 - 当前 V2 已开始实现，首批能力包括：
 - 单局 `turns/` / `battles/` / `rewards/` / `derived/` 的 Phase-1 落盘
 - `memory/archive/index.sqlite`
-- 基础 `run_battles` / `run_tags` 索引
+- 基础 `run_battles` / `run_tags` / `run_cards` / `run_relics` 索引

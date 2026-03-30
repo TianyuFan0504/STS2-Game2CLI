@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import json
+import shlex
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 COMBAT_DECISIONS = {"combat_play", "hand_select"}
 REWARD_DECISIONS = {
@@ -83,10 +85,23 @@ class MemoryV2Archive:
         turns = self._build_turn_files(turns_dir, session, ledger)
         rewards = self._build_reward_files(rewards_dir, session, turns)
         battles = self._build_battle_files(battles_dir, session, turns)
+        deck_timeline = self._build_card_timeline(session, turns, rewards)
+        relic_timeline = self._build_relic_timeline(session, turns, rewards)
         route_timeline = self._build_route_timeline(session, final_state)
         resource_timeline = self._build_resource_timeline(session, final_summary, events, turns)
-        run_tags = self._build_run_tags(session, final_summary, final_state, turns=turns, battles=battles, rewards=rewards)
+        run_tags = self._build_run_tags(
+            session,
+            final_summary,
+            final_state,
+            turns=turns,
+            battles=battles,
+            rewards=rewards,
+            card_events=deck_timeline["events"],
+            relic_events=relic_timeline["events"],
+        )
 
+        self._write_json(derived_dir / "deck_timeline.json", deck_timeline)
+        self._write_json(derived_dir / "relic_timeline.json", relic_timeline)
         self._write_json(derived_dir / "route_timeline.json", route_timeline)
         self._write_json(derived_dir / "resource_timeline.json", resource_timeline)
         self._write_json(
@@ -100,7 +115,7 @@ class MemoryV2Archive:
         boss_name = self._extract_boss_name(final_state)
         death_enemy = self._extract_death_enemy(final_state)
 
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             conn.execute(
                 """
                 INSERT INTO runs (
@@ -160,6 +175,60 @@ class MemoryV2Archive:
                 "INSERT INTO run_tags (run_id, tag_type, tag_value) VALUES (?, ?, ?)",
                 [(str(session["run_id"]), tag["tag_type"], tag["tag_value"]) for tag in run_tags],
             )
+            conn.execute("DELETE FROM run_cards WHERE run_id = ?", (str(session["run_id"]),))
+            conn.executemany(
+                """
+                INSERT INTO run_cards (
+                    run_id,
+                    card_id,
+                    card_name,
+                    op,
+                    floor,
+                    turn_id,
+                    source
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        str(session["run_id"]),
+                        event.get("card_id"),
+                        event.get("card_name"),
+                        event.get("op"),
+                        event.get("floor"),
+                        event.get("turn_id"),
+                        event.get("source"),
+                    )
+                    for event in deck_timeline["events"]
+                ],
+            )
+            conn.execute("DELETE FROM run_relics WHERE run_id = ?", (str(session["run_id"]),))
+            conn.executemany(
+                """
+                INSERT INTO run_relics (
+                    run_id,
+                    relic_id,
+                    relic_name,
+                    op,
+                    floor,
+                    turn_id,
+                    source
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        str(session["run_id"]),
+                        event.get("relic_id"),
+                        event.get("relic_name"),
+                        event.get("op"),
+                        event.get("floor"),
+                        event.get("turn_id"),
+                        event.get("source"),
+                    )
+                    for event in relic_timeline["events"]
+                ],
+            )
             conn.execute("DELETE FROM run_battles WHERE run_id = ?", (str(session["run_id"]),))
             conn.executemany(
                 """
@@ -189,6 +258,7 @@ class MemoryV2Archive:
                     for battle in battles
                 ],
             )
+            conn.commit()
 
     def find_runs(
         self,
@@ -211,12 +281,12 @@ class MemoryV2Archive:
             params.append(result)
         query += " ORDER BY ended_at DESC LIMIT ?"
         params.append(limit)
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             rows = conn.execute(query, params).fetchall()
         return [dict(row) for row in rows]
 
     def find_runs_by_tag(self, tag_type: str, tag_value: str, *, limit: int = 20) -> list[dict[str, Any]]:
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             rows = conn.execute(
                 """
                 SELECT runs.run_id, runs.character, runs.ascension, runs.result, runs.final_act, runs.final_floor
@@ -244,7 +314,57 @@ class MemoryV2Archive:
             params.append(result)
         query += " ORDER BY run_id, battle_id LIMIT ?"
         params.append(limit)
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
+            rows = conn.execute(query, params).fetchall()
+        return [dict(row) for row in rows]
+
+    def find_card_events(
+        self,
+        *,
+        card_id: str | None = None,
+        card_name: str | None = None,
+        op: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        query = "SELECT run_id, card_id, card_name, op, floor, turn_id, source FROM run_cards WHERE 1 = 1"
+        params: list[Any] = []
+        if card_id:
+            query += " AND card_id = ?"
+            params.append(card_id)
+        if card_name:
+            query += " AND card_name = ?"
+            params.append(card_name)
+        if op:
+            query += " AND op = ?"
+            params.append(op)
+        query += " ORDER BY run_id, floor, turn_id LIMIT ?"
+        params.append(limit)
+        with closing(self._connect()) as conn:
+            rows = conn.execute(query, params).fetchall()
+        return [dict(row) for row in rows]
+
+    def find_relic_events(
+        self,
+        *,
+        relic_id: str | None = None,
+        relic_name: str | None = None,
+        op: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        query = "SELECT run_id, relic_id, relic_name, op, floor, turn_id, source FROM run_relics WHERE 1 = 1"
+        params: list[Any] = []
+        if relic_id:
+            query += " AND relic_id = ?"
+            params.append(relic_id)
+        if relic_name:
+            query += " AND relic_name = ?"
+            params.append(relic_name)
+        if op:
+            query += " AND op = ?"
+            params.append(op)
+        query += " ORDER BY run_id, floor, turn_id LIMIT ?"
+        params.append(limit)
+        with closing(self._connect()) as conn:
             rows = conn.execute(query, params).fetchall()
         return [dict(row) for row in rows]
 
@@ -277,6 +397,7 @@ class MemoryV2Archive:
         iteration = int(meta.get("iteration") or (len(list(turns_dir.glob("turn_*.json"))) + 1))
         turn_id = f"turn_{iteration:04d}"
         state_before = self._normalize_summary_dict(meta.get("state_summary"))
+        state_before_details = self._normalize_state_details(meta.get("state"))
         state_after = self._reconstruct_turn_end_summary(state_before, records)
         commands = self._extract_turn_commands(records)
         assistant_output = self._extract_turn_assistant_output(records)
@@ -293,6 +414,7 @@ class MemoryV2Archive:
             "decision_before": state_before.get("decision"),
             "decision_after": state_after.get("decision"),
             "state_before": state_before,
+            "state_before_details": state_before_details,
             "state_after": state_after,
             "commands": commands,
             "assistant_output": assistant_output,
@@ -313,16 +435,10 @@ class MemoryV2Archive:
                 continue
             reward_id = f"reward_{len(rewards) + 1:04d}"
             commands = [command.get("command") for command in turn.get("commands", []) if isinstance(command, dict)]
-            chosen = commands[0] if commands else None
-            skipped = any(
-                isinstance(command, str) and (
-                    command.startswith("skip-")
-                    or command.startswith("skip ")
-                    or command.startswith("skip-card-reward")
-                    or command.startswith("skip-relic-selection")
-                )
-                for command in commands
-            )
+            options = self._extract_reward_options(turn, source)
+            action = self._extract_turn_action(turn, source)
+            chosen_option = self._resolve_action_option(action, options)
+            skipped = self._action_is_skip(action)
             reward = {
                 "reward_id": reward_id,
                 "run_id": str(session["run_id"]),
@@ -330,12 +446,13 @@ class MemoryV2Archive:
                 "act": turn.get("state_before", {}).get("act") or turn.get("state_after", {}).get("act"),
                 "floor": turn.get("state_before", {}).get("floor") or turn.get("state_after", {}).get("floor"),
                 "source": source,
-                "options": [],
-                "chosen": chosen,
+                "options": options,
+                "chosen": chosen_option,
+                "chosen_command": None if action is None else action.get("command"),
                 "skipped": skipped,
                 "commands": commands,
                 "decision_after": turn.get("decision_after"),
-                "notes": "Phase-1 reward extraction stores command-level decisions; option payloads are not yet reconstructed.",
+                "notes": "Phase-2 reward extraction includes parsed options and chosen option when turn state has enough detail.",
             }
             self._write_json(rewards_dir / f"{reward_id}.json", reward)
             rewards.append(reward)
@@ -363,9 +480,11 @@ class MemoryV2Archive:
         turns: list[dict[str, Any]],
         index: int,
     ) -> dict[str, Any]:
-        first = turns[0]
         last = turns[-1]
-        battle_start_state = self._select_battle_entry_state(first)
+        battle_detail_state = self._select_battle_detail_state(turns)
+        battle_start_state = self._select_battle_entry_state(turns[0])
+        enemies = battle_detail_state.get("enemies") if isinstance(battle_detail_state.get("enemies"), list) else []
+        enemy_names = [str(enemy.get("name")) for enemy in enemies if isinstance(enemy, dict) and enemy.get("name")]
         commands = [
             command.get("command")
             for turn in turns
@@ -375,11 +494,15 @@ class MemoryV2Archive:
         battle = {
             "battle_id": f"battle_{index:04d}",
             "run_id": str(session["run_id"]),
-            "act": battle_start_state.get("act"),
-            "floor": battle_start_state.get("floor"),
-            "room_type": None,
-            "enemy_names": [],
-            "enemy_signature": None,
+            "act": battle_detail_state.get("context", {}).get("act", battle_start_state.get("act"))
+            if isinstance(battle_detail_state.get("context"), dict)
+            else battle_start_state.get("act"),
+            "floor": battle_detail_state.get("context", {}).get("floor", battle_start_state.get("floor"))
+            if isinstance(battle_detail_state.get("context"), dict)
+            else battle_start_state.get("floor"),
+            "room_type": battle_detail_state.get("room_type"),
+            "enemy_names": enemy_names,
+            "enemy_signature": self._build_enemy_signature(enemies),
             "hp_before": battle_start_state.get("hp"),
             "hp_after": last.get("state_after", {}).get("hp"),
             "turn_count": len(turns),
@@ -392,13 +515,28 @@ class MemoryV2Archive:
         return battle
 
     def _select_battle_entry_state(self, turn: dict[str, Any]) -> dict[str, Any]:
+        before_details = turn.get("state_before_details", {}) if isinstance(turn.get("state_before_details"), dict) else {}
         before = turn.get("state_before", {}) if isinstance(turn.get("state_before"), dict) else {}
         after = turn.get("state_after", {}) if isinstance(turn.get("state_after"), dict) else {}
         if str(turn.get("decision_before") or "") in COMBAT_DECISIONS:
+            if before_details:
+                return self._summary_from_state_details(before_details)
             return before
         if str(turn.get("decision_after") or "") in COMBAT_DECISIONS:
             return after
         return before or after
+
+    def _select_battle_detail_state(self, turns: list[dict[str, Any]]) -> dict[str, Any]:
+        for turn in turns:
+            if str(turn.get("decision_before") or "") in COMBAT_DECISIONS:
+                details = turn.get("state_before_details")
+                if isinstance(details, dict) and details:
+                    return details
+        first = turns[0]
+        details = first.get("state_before_details")
+        if isinstance(details, dict):
+            return details
+        return {}
 
     def _build_route_timeline(self, session: dict[str, Any], final_state: dict[str, Any]) -> dict[str, Any]:
         visited = final_state.get("visited")
@@ -476,6 +614,86 @@ class MemoryV2Archive:
             },
         }
 
+    def _build_card_timeline(
+        self,
+        session: dict[str, Any],
+        turns: list[dict[str, Any]],
+        rewards: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        events: list[dict[str, Any]] = []
+        reward_by_turn = {str(reward.get("turn_id") or ""): reward for reward in rewards}
+
+        for turn in turns:
+            turn_id = str(turn.get("turn_id") or "")
+            reward = reward_by_turn.get(turn_id)
+            if reward is not None:
+                source = str(reward.get("source") or "")
+                chosen = reward.get("chosen")
+                if source == "card_reward":
+                    event = self._card_event_from_option(turn, chosen, op="add", source="card_reward")
+                    if event is not None:
+                        events.append(event)
+                elif source == "shop" and isinstance(chosen, dict) and chosen.get("category") == "card":
+                    event = self._card_event_from_option(turn, chosen, op="add", source="shop")
+                    if event is not None:
+                        events.append(event)
+                elif source == "combat_rewards" and isinstance(chosen, dict) and str(chosen.get("type") or "") in {"card", "special_card"}:
+                    event = self._card_event_from_option(turn, chosen, op="add", source="combat_rewards")
+                    if event is not None:
+                        events.append(event)
+                elif source == "card_select":
+                    op = self._infer_card_select_operation(turn)
+                    event = self._card_event_from_option(turn, chosen, op=op, source="card_select")
+                    if event is not None:
+                        events.append(event)
+
+        return {
+            "run_id": str(session["run_id"]),
+            "mode": "delta",
+            "events": events,
+            "summary": self._summarize_delta_events(events, key_name="card_name"),
+        }
+
+    def _build_relic_timeline(
+        self,
+        session: dict[str, Any],
+        turns: list[dict[str, Any]],
+        rewards: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        events: list[dict[str, Any]] = []
+        reward_by_turn = {str(reward.get("turn_id") or ""): reward for reward in rewards}
+
+        for turn in turns:
+            turn_id = str(turn.get("turn_id") or "")
+            reward = reward_by_turn.get(turn_id)
+            if reward is None:
+                continue
+            source = str(reward.get("source") or "")
+            chosen = reward.get("chosen")
+            if source == "shop" and isinstance(chosen, dict) and chosen.get("category") == "relic":
+                event = self._relic_event_from_option(turn, chosen, op="add", source="shop")
+                if event is not None:
+                    events.append(event)
+            elif source in {"treasure", "relic_select"}:
+                event = self._relic_event_from_option(turn, chosen, op="add", source=source)
+                if event is not None:
+                    events.append(event)
+            elif source == "event_choice":
+                event = self._relic_event_from_option(turn, chosen, op="add", source="event_choice")
+                if event is not None:
+                    events.append(event)
+            elif source == "combat_rewards" and isinstance(chosen, dict) and str(chosen.get("type") or "") == "relic":
+                event = self._relic_event_from_option(turn, chosen, op="add", source="combat_rewards")
+                if event is not None:
+                    events.append(event)
+
+        return {
+            "run_id": str(session["run_id"]),
+            "mode": "delta",
+            "events": events,
+            "summary": self._summarize_delta_events(events, key_name="relic_name"),
+        }
+
     def _build_run_tags(
         self,
         session: dict[str, Any],
@@ -485,6 +703,8 @@ class MemoryV2Archive:
         turns: list[dict[str, Any]],
         battles: list[dict[str, Any]],
         rewards: list[dict[str, Any]],
+        card_events: list[dict[str, Any]],
+        relic_events: list[dict[str, Any]],
     ) -> list[dict[str, str]]:
         seen: set[tuple[str, str]] = set()
         tags: list[dict[str, str]] = []
@@ -510,6 +730,8 @@ class MemoryV2Archive:
         add("turn_count", len(turns))
         add("battle_count", len(battles))
         add("reward_count", len(rewards))
+        add("card_event_count", len(card_events))
+        add("relic_event_count", len(relic_events))
         return tags
 
     def _extract_boss_name(self, final_state: dict[str, Any]) -> str | None:
@@ -539,6 +761,9 @@ class MemoryV2Archive:
                 return str(value)
         return None
 
+    def _normalize_state_details(self, value: Any) -> dict[str, Any]:
+        return dict(value) if isinstance(value, dict) else {}
+
     def _normalize_summary_dict(self, value: Any) -> dict[str, Any]:
         if not isinstance(value, dict):
             return {}
@@ -554,6 +779,10 @@ class MemoryV2Archive:
             "gold": value.get("gold"),
         }
 
+    def _summary_from_state_details(self, state: dict[str, Any]) -> dict[str, Any]:
+        summary = summarize_state(state)
+        return summary or {}
+
     def _is_turn_started_record(self, record: dict[str, Any]) -> bool:
         return str(record.get("record_type") or "") == "artifact" and str(record.get("artifact_type") or "") == "turn_started"
 
@@ -563,6 +792,7 @@ class MemoryV2Archive:
             "iteration": payload.get("iteration"),
             "mode": payload.get("mode"),
             "state_summary": self._normalize_summary_dict(payload.get("state_summary")),
+            "state": self._normalize_state_details(payload.get("state")),
         }
 
     def _reconstruct_turn_end_summary(self, state_before: dict[str, Any], records: list[dict[str, Any]]) -> dict[str, Any]:
@@ -680,6 +910,191 @@ class MemoryV2Archive:
                 paths["text_log"] = payload.get("text_path")
         return paths
 
+    def _extract_reward_options(self, turn: dict[str, Any], source: str) -> list[dict[str, Any]]:
+        details = turn.get("state_before_details", {}) if isinstance(turn.get("state_before_details"), dict) else {}
+        if source == "card_reward":
+            return self._clone_option_list(details.get("cards"))
+        if source == "combat_rewards":
+            return self._clone_option_list(details.get("items"))
+        if source == "event_choice":
+            return self._clone_option_list(details.get("options"))
+        if source == "rest_site":
+            return self._clone_option_list(details.get("options"))
+        if source == "shop":
+            options = self._clone_option_list(details.get("items"))
+            card_removal = details.get("card_removal")
+            if isinstance(card_removal, dict):
+                options.append(dict(card_removal))
+            return options
+        if source == "card_select":
+            return self._clone_option_list(details.get("cards"))
+        if source == "relic_select":
+            return self._clone_option_list(details.get("relics"))
+        if source == "treasure":
+            return self._clone_option_list(details.get("relics"))
+        return []
+
+    def _clone_option_list(self, value: Any) -> list[dict[str, Any]]:
+        if not isinstance(value, list):
+            return []
+        return [dict(item) for item in value if isinstance(item, dict)]
+
+    def _extract_turn_action(self, turn: dict[str, Any], source: str) -> dict[str, Any] | None:
+        commands = turn.get("commands", [])
+        if not isinstance(commands, list):
+            return None
+
+        preferred_by_source = {
+            "card_reward": {"pick-card-reward", "skip-card-reward"},
+            "combat_rewards": {"claim-reward", "proceed"},
+            "event_choice": {"event", "advance-dialogue", "proceed"},
+            "rest_site": {"rest", "proceed"},
+            "shop": {"shop-buy", "proceed"},
+            "card_select": {"select-card", "confirm-selection", "cancel-selection"},
+            "relic_select": {"select-relic", "skip-relic-selection"},
+            "treasure": {"claim-treasure-relic", "proceed"},
+        }
+        preferred = preferred_by_source.get(source, set())
+
+        parsed_commands = [self._parse_turn_command(command) for command in commands if isinstance(command, dict)]
+        parsed_commands = [command for command in parsed_commands if command is not None]
+        for command in parsed_commands:
+            if str(command.get("name") or "") in preferred:
+                return command
+        return parsed_commands[0] if parsed_commands else None
+
+    def _parse_turn_command(self, command: dict[str, Any]) -> dict[str, Any] | None:
+        command_text = command.get("command")
+        if not isinstance(command_text, str) or not command_text.strip():
+            return None
+        try:
+            tokens = shlex.split(command_text)
+        except ValueError:
+            tokens = command_text.strip().split()
+        if not tokens:
+            return None
+        index: int | None = None
+        if len(tokens) > 1:
+            try:
+                index = int(tokens[1])
+            except ValueError:
+                index = None
+        return {
+            "command": command_text,
+            "name": tokens[0],
+            "index": index,
+        }
+
+    def _resolve_action_option(self, action: dict[str, Any] | None, options: list[dict[str, Any]]) -> dict[str, Any] | None:
+        if action is None or not options:
+            return None
+        index = action.get("index")
+        if isinstance(index, int):
+            for option in options:
+                if option.get("index") == index:
+                    return dict(option)
+            if 0 <= index < len(options):
+                return dict(options[index])
+        return None
+
+    def _action_is_skip(self, action: dict[str, Any] | None) -> bool:
+        if action is None:
+            return False
+        return str(action.get("name") or "") in {
+            "skip-card-reward",
+            "skip-relic-selection",
+            "cancel-selection",
+        }
+
+    def _card_event_from_option(
+        self,
+        turn: dict[str, Any],
+        option: Any,
+        *,
+        op: str | None,
+        source: str,
+    ) -> dict[str, Any] | None:
+        if not isinstance(option, dict) or not op:
+            return None
+        card_id = option.get("id") or option.get("card_id")
+        card_name = option.get("name") or option.get("card_name")
+        if card_name in {None, ""} and card_id in {None, ""}:
+            return None
+        return {
+            "turn_id": turn.get("turn_id"),
+            "source": source,
+            "op": op,
+            "floor": turn.get("state_before", {}).get("floor") or turn.get("state_after", {}).get("floor"),
+            "card_id": None if card_id in {None, ""} else str(card_id),
+            "card_name": str(card_name or card_id),
+        }
+
+    def _relic_event_from_option(
+        self,
+        turn: dict[str, Any],
+        option: Any,
+        *,
+        op: str | None,
+        source: str,
+    ) -> dict[str, Any] | None:
+        if not isinstance(option, dict) or not op:
+            return None
+        relic_id = option.get("id") or option.get("relic_id")
+        relic_name = option.get("name") or option.get("relic_name")
+        if relic_name in {None, ""} and relic_id in {None, ""}:
+            return None
+        return {
+            "turn_id": turn.get("turn_id"),
+            "source": source,
+            "op": op,
+            "floor": turn.get("state_before", {}).get("floor") or turn.get("state_after", {}).get("floor"),
+            "relic_id": None if relic_id in {None, ""} else str(relic_id),
+            "relic_name": str(relic_name or relic_id),
+        }
+
+    def _infer_card_select_operation(self, turn: dict[str, Any]) -> str | None:
+        details = turn.get("state_before_details", {}) if isinstance(turn.get("state_before_details"), dict) else {}
+        screen_type = str(details.get("screen_type") or "").strip().lower()
+        prompt = str(details.get("prompt") or "").strip().lower()
+        if screen_type == "upgrade" or "upgrade" in prompt:
+            return "upgrade"
+        if screen_type == "transform" or "transform" in prompt:
+            return "transform"
+        if "remove" in prompt or "purge" in prompt or "delete" in prompt:
+            return "remove"
+        if "duplicate" in prompt or "copy" in prompt:
+            return "duplicate"
+        return None
+
+    def _summarize_delta_events(self, events: list[dict[str, Any]], *, key_name: str) -> dict[str, Any]:
+        op_counts: dict[str, int] = {}
+        names: list[str] = []
+        for event in events:
+            op = str(event.get("op") or "unknown")
+            op_counts[op] = op_counts.get(op, 0) + 1
+            name = event.get(key_name)
+            if isinstance(name, str) and name and name not in names:
+                names.append(name)
+        return {
+            "event_count": len(events),
+            "op_counts": op_counts,
+            "names": names,
+        }
+
+    def _build_enemy_signature(self, enemies: list[dict[str, Any]]) -> str | None:
+        if not enemies:
+            return None
+        parts: list[str] = []
+        for enemy in enemies:
+            if not isinstance(enemy, dict):
+                continue
+            enemy_id = enemy.get("entity_id") or enemy.get("name")
+            if enemy_id:
+                parts.append(str(enemy_id))
+        if not parts:
+            return None
+        return "|".join(parts)
+
     def _summarize_turn(self, commands: list[dict[str, Any]], state_before: dict[str, Any], state_after: dict[str, Any]) -> str:
         if commands:
             command_text = ", ".join(str(command.get("command") or "") for command in commands if command.get("command"))
@@ -707,7 +1122,7 @@ class MemoryV2Archive:
         return "ongoing"
 
     def _ensure_schema(self) -> None:
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS runs (
@@ -756,12 +1171,45 @@ class MemoryV2Archive:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS run_cards (
+                    run_id TEXT NOT NULL,
+                    card_id TEXT,
+                    card_name TEXT NOT NULL,
+                    op TEXT NOT NULL,
+                    floor INTEGER,
+                    turn_id TEXT,
+                    source TEXT,
+                    FOREIGN KEY (run_id) REFERENCES runs(run_id) ON DELETE CASCADE
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS run_relics (
+                    run_id TEXT NOT NULL,
+                    relic_id TEXT,
+                    relic_name TEXT NOT NULL,
+                    op TEXT NOT NULL,
+                    floor INTEGER,
+                    turn_id TEXT,
+                    source TEXT,
+                    FOREIGN KEY (run_id) REFERENCES runs(run_id) ON DELETE CASCADE
+                )
+                """
+            )
             conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_character_ascension ON runs(character, ascension)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_result ON runs(result)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_ended_at ON runs(ended_at)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_run_tags_lookup ON run_tags(tag_type, tag_value)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_run_battles_floor ON run_battles(floor)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_run_cards_card_id ON run_cards(card_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_run_cards_card_name ON run_cards(card_name)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_run_relics_relic_id ON run_relics(relic_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_run_relics_relic_name ON run_relics(relic_name)")
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+            conn.commit()
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)

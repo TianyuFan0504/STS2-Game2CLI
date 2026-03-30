@@ -26,6 +26,8 @@ memory/
         │   ├── session.json
         │   └── state_snapshot.json
         ├── derived/
+        │   ├── deck_timeline.json
+        │   ├── relic_timeline.json
         │   ├── resource_timeline.json
         │   ├── route_timeline.json
         │   └── run_tags.json
@@ -189,10 +191,20 @@ memory/
 - `options` 还没有完整回放
 - 还没有卡牌 / 遗物 / 药水级别的标准化结构
 
+目前已经会在 reward 文件里写：
+
+- `options`
+- `chosen`
+- `chosen_command`
+
+但它仍然是基于当前 turn `state_before` 的结构化提取，不是完整的 replay 层。
+
 ### 3.5 `derived/`
 
 当前已经会生成：
 
+- `deck_timeline.json`
+- `relic_timeline.json`
 - `route_timeline.json`
 - `resource_timeline.json`
 - `run_tags.json`
@@ -201,6 +213,10 @@ memory/
 
 - `route_timeline.json`
   - 保存路线推进结果
+- `deck_timeline.json`
+  - 保存当前已能识别出的卡牌 delta 事件
+- `relic_timeline.json`
+  - 保存当前已能识别出的遗物 delta 事件
 - `resource_timeline.json`
   - 保存 HP / Gold / Floor / Act 的变化时间线
 - `run_tags.json`
@@ -211,19 +227,21 @@ memory/
 当前 `memory/archive/index.sqlite` 已经包含这些表：
 
 - `runs`
+- `run_cards`
+- `run_relics`
 - `run_tags`
 - `run_battles`
 
 当前已经支持的最小检索能力：
 
 - 按 `character` / `result` 查 runs
+- 按 `card_id` / `card_name` 查 card events
+- 按 `relic_id` / `relic_name` 查 relic events
 - 按 tag 查 runs
 - 按 `run_id` / `result` 查 battles
 
 当前还没有：
 
-- `run_cards`
-- `run_relics`
 - 复杂聚合统计
 - 前端回放查询入口
 
@@ -235,11 +253,11 @@ memory/
 - 当前 run summary 注入
 - 局结束后的 turn / reward / battle / derived 归档
 - 最小跨局索引
+- 卡牌 / 遗物 delta 时间线与索引
 
 但还没有完全做到：
 
-- deck / relic 时间线
 - 更细的 battle enemy 结构
-- 完整 reward options 回放
+- 完整 reward replay 与多阶段选择回放
 - 跨局 lessons 抽取
 - 面向前端的 replay / search API

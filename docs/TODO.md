@@ -9,7 +9,7 @@
 - 通过 `pi` harness 驱动 agent 自动游玩
 - 通过浏览器前端控制 agent、查看状态和日志
 - Memory V1 已完成：单局短期记忆目录、事件流、摘要和 prompt 注入已经接入前端控制服务，并有基础回归测试
-- Memory V2 已开始：局结束后会生成首批 `turns/` / `battles/` / `rewards/` / `derived/` 文件，并维护 `memory/archive/index.sqlite`
+- Memory V2 已推进到结构化归档阶段：局结束后会生成 `turns/` / `battles/` / `rewards/` / `derived/`，并维护 `memory/archive/index.sqlite`、`run_cards`、`run_relics`
 
 ## 下一阶段重点
 
@@ -43,10 +43,10 @@
 
 ### 5. Memory V2
 
-- 增加 `turns/`、`battles/`、`rewards/`、`derived/`
+- 补全 battle enemy / room / signature 字段
+- 补全 reward 的完整 replay 语义，而不只是当前 turn 提取
 - 增加局结束总结
-- 增加 `memory/archive/index.sqlite`
-- 支持跨局检索和经验聚合
+- 扩展跨局检索和经验聚合
 
 ## 参考文档
 

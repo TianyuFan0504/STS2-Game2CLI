@@ -57,11 +57,15 @@ V2 依赖 V1 已经成立：
 
 - 局结束后会生成 `turns/`、`battles/`、`rewards/`、`derived/`
 - `derived/` 当前会先写：
+  - `deck_timeline.json`
+  - `relic_timeline.json`
   - `route_timeline.json`
   - `resource_timeline.json`
   - `run_tags.json`
 - `memory/archive/index.sqlite` 当前已包含：
   - `runs`
+  - `run_cards`
+  - `run_relics`
   - `run_tags`
   - `run_battles`
 
