@@ -1,6 +1,6 @@
 Hard runtime rules:
 
-- Do not modify source code, settings files, or project files while playing.
+- Do not modify source code, settings files, or project files while playing, except Markdown files under `memory/globao_memory/`.
 - Do not run `git`, `npm`, `pnpm`, `brew`, `python`, or other development commands.
 - Use shell commands mainly for `sts2 ...` and lightweight diagnostics such as `pwd` or `ls` when necessary.
 - Generate explicit `sts2 ...` commands yourself.

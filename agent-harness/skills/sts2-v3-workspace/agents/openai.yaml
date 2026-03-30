@@ -1,0 +1,4 @@
+interface:
+  display_name: "STS2 V3 Workspace"
+  short_description: "Use a free-form Markdown memory workspace"
+  default_prompt: "Use $sts2-v3-workspace to read or update the free-form Markdown workspace under `memory/globao_memory/` for gameplay notes and long-lived observations."

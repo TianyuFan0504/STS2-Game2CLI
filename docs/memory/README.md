@@ -18,6 +18,10 @@
   - 第二阶段跨局索引范围
   - 明确单局派生数据、SQLite 索引层和跨局检索边界
 
+- `MEMORY_V3.md`
+  - 第三阶段自由工作区范围
+  - 明确只允许 Markdown、但不预定义内容或格式
+
 - `MEMORY_CURRENT.md`
   - 当前仓库已经实际落地的 memory 状态
   - 用来区分“现在有什么”和“未来设计想做什么”
@@ -34,14 +38,22 @@
   - V2 实现待办
   - 聚焦跨局索引和检索
 
+- `MEMORY_V3_TODO.md`
+  - V3 实现待办
+  - 聚焦自由 Markdown 工作区
+
 ## 当前原则
 
 - 先设计，后实现
 - 先单局短期记忆，后跨局长期记忆
 - 运行期数据留在 `memory/runs/<run_id>/`，设计文档统一放在 `docs/memory/`
 - 先 `memory/runs/<run_id>/` 单局目录，后 `memory/archive/index.sqlite`
+- V3 已开始实现为自由 Markdown 工作区，不预设 schema
 - 当前 V1 已完成并接入前端控制服务
 - 当前 V2 已开始实现，首批能力包括：
-- 单局 `turns/` / `battles/` / `rewards/` / `derived/` 的 Phase-1 落盘
+- 单局 `turns/` / `battles/` / `rewards/` / `derived/` 的 Phase-2 落盘
 - `memory/archive/index.sqlite`
 - 基础 `run_battles` / `run_tags` / `run_cards` / `run_relics` 索引
+- `victory.md` / `postmortem.md`
+- replay / search / stats 前端与 API
+- V3 工作区 `memory/globao_memory/`

@@ -36,11 +36,13 @@ APPEND_PROMPT = ROOT / "agent-harness" / "pi-agent" / "append-system-prompt.md"
 ENV_FILE = ROOT / ".env"
 MEMORY_ROOT = ROOT / "memory"
 MEMORY_SKILL_NAME = "sts2-v2-memory"
+MEMORY_V3_SKILL_NAME = "sts2-v3-workspace"
 
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from memory_v1 import MemoryV1Store, summarize_state  # noqa: E402
+from memory_v3 import MemoryV3Workspace  # noqa: E402
 from sts2_commands import extract_sts2_segments, has_sts2_subcommand, normalize_sts2_command  # noqa: E402
 from sts2cli.http_client import ApiError, Sts2RawClient  # noqa: E402
 from sts2cli.state_adapter import normalize_state  # noqa: E402
@@ -269,6 +271,8 @@ def classify_memory_target(path: str | None = None, command: str | None = None) 
     candidate = (path or command or "").replace("\\", "/").lower()
     if not candidate:
         return "memory"
+    if "/globao_memory/" in candidate:
+        return "v3"
     if "index.sqlite" in candidate or "sqlite3 " in candidate:
         return "sqlite"
     if "/turns/" in candidate:
@@ -293,6 +297,12 @@ def parse_optional_int(value: str | None) -> int | None:
     if not text:
         return None
     return int(text)
+
+
+def parse_bool_env(value: str | None, default: bool = False) -> bool:
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 @dataclass
@@ -434,6 +444,7 @@ class AgentController:
         self._recent_memory_fetches: deque[dict[str, Any]] = deque(maxlen=20)
         self._skills_used_this_iteration: set[str] = set()
         self._memory = MemoryV1Store(ROOT / "memory")
+        self._memory_v3 = MemoryV3Workspace(ROOT / "memory")
 
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
@@ -460,6 +471,7 @@ class AgentController:
                 "latest_event_id": self._events.latest_id(),
                 "memory": memory_info,
                 "memory_summary": self._memory.get_visible_summary(),
+                "memory_v3": self._memory_v3.status(),
                 "skills": {
                     "root": str(SKILL_PATH),
                     "loaded": [
@@ -535,6 +547,18 @@ class AgentController:
     def get_memory_stats(self, params: dict[str, str]) -> dict[str, Any]:
         character = (params.get("character") or "").strip() or None
         return {"ok": True, "stats": self._memory.v2.get_stats(character=character)}
+
+    def get_memory_v3_status(self) -> dict[str, Any]:
+        return {"ok": True, "workspace": self._memory_v3.status()}
+
+    def search_memory_v3(self, params: dict[str, str]) -> dict[str, Any]:
+        query = (params.get("q") or "").strip() or None
+        limit = parse_optional_int(params.get("limit")) or 50
+        limit = max(1, min(limit, 200))
+        return {"ok": True, "workspace": self._memory_v3.search(query=query, limit=limit)}
+
+    def get_memory_v3_file(self, relative_path: str) -> dict[str, Any]:
+        return {"ok": True, "file": self._memory_v3.read_file(relative_path)}
 
     def start(self, mode: str) -> dict[str, Any]:
         if mode not in {"single", "full_auto"}:
@@ -929,6 +953,7 @@ class AgentController:
             "command": command,
             "preview": summarize_preview(preview),
             "via_memory_skill": MEMORY_SKILL_NAME in self._skills_used_this_iteration,
+            "via_memory_v3_skill": MEMORY_V3_SKILL_NAME in self._skills_used_this_iteration,
         }
         self._recent_memory_fetches.appendleft(item)
         timeline_text = f"[{category}] {label}"
@@ -1167,6 +1192,24 @@ class FrontendHandler(BaseHTTPRequestHandler):
             flat = {key: values[0] for key, values in params.items() if values}
             try:
                 return self._send_json(CONTROLLER.get_memory_stats(flat))
+            except Exception as exc:  # noqa: BLE001
+                return self._send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
+        if parsed.path == "/api/memory/v3/status":
+            return self._send_json(CONTROLLER.get_memory_v3_status())
+        if parsed.path == "/api/memory/v3/search":
+            params = parse_qs(parsed.query)
+            flat = {key: values[0] for key, values in params.items() if values}
+            try:
+                return self._send_json(CONTROLLER.search_memory_v3(flat))
+            except Exception as exc:  # noqa: BLE001
+                return self._send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
+        if parsed.path == "/api/memory/v3/file":
+            params = parse_qs(parsed.query)
+            rel_path = params.get("path", [""])[0].strip()
+            if not rel_path:
+                return self._send_json({"ok": False, "error": "path is required"}, HTTPStatus.BAD_REQUEST)
+            try:
+                return self._send_json(CONTROLLER.get_memory_v3_file(rel_path))
             except Exception as exc:  # noqa: BLE001
                 return self._send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
         return self._send_json({"ok": False, "error": "Not found"}, HTTPStatus.NOT_FOUND)

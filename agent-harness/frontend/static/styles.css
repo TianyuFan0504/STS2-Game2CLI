@@ -235,6 +235,10 @@ h2 {
   text-align: right;
 }
 
+.archive-meta {
+  margin-bottom: 12px;
+}
+
 .memory-pane {
   margin: 12px 0 0;
   min-height: 240px;

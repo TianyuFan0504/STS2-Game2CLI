@@ -10,6 +10,7 @@
 memory/
 ├── archive/
 │   └── index.sqlite
+├── globao_memory/
 ├── latest -> runs/<run_id>
 └── runs/
     └── <run_id>/
@@ -41,6 +42,7 @@ memory/
 
 - `memory/runs/<run_id>/...` 是单局事实数据
 - `memory/archive/index.sqlite` 是跨局索引
+- `memory/globao_memory/` 是 V3 的自由 Markdown 工作区
 - `memory/latest` 指向最近一个 run 目录
 
 ## 2. V1 当前行为
@@ -270,3 +272,31 @@ memory/
 - 更细的 battle enemy 结构
 - 完整 reward replay 与多阶段选择回放
 - 跨局 lessons 抽取
+
+## 6. V3 当前行为
+
+当前 V3 已开始实现，定位是一个自由 Markdown 工作区：
+
+- 目录固定为 `memory/globao_memory/`
+- 允许子目录
+- 正常文件只允许 `.md`
+- 非 Markdown 文件会被视为无效工作区内容并在前端状态里标出来
+
+当前已经有：
+
+- `MemoryV3Workspace` 工作区管理
+- 前端状态 / 搜索 / 文件读取 API
+- 前端控制台里的 V3 工作区面板
+- `sts2-v3-workspace` skill
+
+当前 agent 的使用边界是：
+
+- 可以自由查询 / 修改 / 创建 `memory/globao_memory/` 下的 `.md`
+- 不要求固定模板
+- 不要求固定命名规则
+
+当前 V3 还没有：
+
+- 自动 lessons 抽取
+- 对 Markdown 内容的自动整理/压缩
+- 专门的写入 API

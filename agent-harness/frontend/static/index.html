@@ -135,6 +135,38 @@
         </div>
       </section>
 
+      <section class="dashboard archive-grid">
+        <div class="card archive-card">
+          <div class="panel-header">
+            <h2>Memory V3 Workspace</h2>
+            <button id="memoryV3RefreshBtn" type="button" class="ghost panel-toggle">Refresh</button>
+          </div>
+          <div class="memory-meta archive-meta">
+            <span id="memoryV3Root">root: -</span>
+            <span id="memoryV3Counts">files: -</span>
+            <span id="memoryV3Invalid">invalid: -</span>
+          </div>
+          <div class="archive-form-grid single-column">
+            <label><span class="label">Search Markdown</span><input id="memoryV3SearchInput" type="text" /></label>
+          </div>
+          <div class="button-row compact">
+            <button id="memoryV3SearchBtn" type="button" class="ghost panel-toggle">Search</button>
+          </div>
+          <div id="memoryV3SearchResults" class="archive-results"></div>
+        </div>
+
+        <div class="card archive-card">
+          <div class="panel-header">
+            <h2>Memory V3 File</h2>
+            <button id="memoryV3OpenBtn" type="button" class="ghost panel-toggle">Open File</button>
+          </div>
+          <div class="archive-form-grid single-column">
+            <label><span class="label">Relative Path</span><input id="memoryV3PathInput" type="text" /></label>
+          </div>
+          <pre id="memoryV3FilePane" class="mono archive-pane"></pre>
+        </div>
+      </section>
+
       <section class="streams">
         <div class="card panel">
           <div class="panel-header">

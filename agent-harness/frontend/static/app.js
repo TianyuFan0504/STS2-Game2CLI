@@ -49,6 +49,16 @@ const memoryRunDetailPane = document.getElementById("memoryRunDetailPane");
 const memoryStatsCharacter = document.getElementById("memoryStatsCharacter");
 const memoryStatsBtn = document.getElementById("memoryStatsBtn");
 const memoryStatsPane = document.getElementById("memoryStatsPane");
+const memoryV3Root = document.getElementById("memoryV3Root");
+const memoryV3Counts = document.getElementById("memoryV3Counts");
+const memoryV3Invalid = document.getElementById("memoryV3Invalid");
+const memoryV3SearchInput = document.getElementById("memoryV3SearchInput");
+const memoryV3SearchBtn = document.getElementById("memoryV3SearchBtn");
+const memoryV3RefreshBtn = document.getElementById("memoryV3RefreshBtn");
+const memoryV3SearchResults = document.getElementById("memoryV3SearchResults");
+const memoryV3PathInput = document.getElementById("memoryV3PathInput");
+const memoryV3OpenBtn = document.getElementById("memoryV3OpenBtn");
+const memoryV3FilePane = document.getElementById("memoryV3FilePane");
 
 let lastEventId = 0;
 let stateCache = null;
@@ -353,6 +363,71 @@ function renderMemoryStats(payload) {
   memoryStatsPane.textContent = formatJsonBlock(payload.stats || {});
 }
 
+function renderMemoryV3Status(payload) {
+  const workspace = payload.workspace || {};
+  memoryV3Root.textContent = `root: ${formatDisplayPath(workspace.root)}`;
+  memoryV3Counts.textContent = `files: ${workspace.file_count ?? 0}`;
+  memoryV3Invalid.textContent = `invalid: ${workspace.invalid_file_count ?? 0}`;
+}
+
+function renderMemoryV3Search(payload) {
+  const workspace = payload.workspace || {};
+  const results = workspace.results || [];
+  memoryV3SearchResults.replaceChildren();
+  if (results.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "archive-empty";
+    empty.textContent = "No Markdown files matched.";
+    memoryV3SearchResults.appendChild(empty);
+    return;
+  }
+  for (const item of results) {
+    const article = document.createElement("article");
+    article.className = "archive-result";
+
+    const header = document.createElement("div");
+    header.className = "archive-result-header";
+
+    const title = document.createElement("div");
+    title.className = "archive-result-title";
+    title.textContent = item.path || "-";
+
+    const action = document.createElement("button");
+    action.type = "button";
+    action.className = "ghost archive-open-btn";
+    action.textContent = "Open";
+    action.dataset.v3Path = item.path || "";
+
+    header.appendChild(title);
+    header.appendChild(action);
+
+    const meta = document.createElement("div");
+    meta.className = "archive-result-meta";
+    meta.textContent = `size=${item.size_bytes ?? 0}B modified=${item.modified_ts || "-"}`;
+
+    const preview = document.createElement("div");
+    preview.className = "archive-result-meta";
+    preview.textContent = item.preview || "(empty)";
+
+    article.appendChild(header);
+    article.appendChild(meta);
+    article.appendChild(preview);
+    memoryV3SearchResults.appendChild(article);
+  }
+}
+
+function renderMemoryV3File(payload) {
+  const file = payload.file || {};
+  const lines = [
+    `Path: ${file.path || "-"}`,
+    `Size: ${file.info?.size_bytes ?? 0}B`,
+    `Modified: ${file.info?.modified_ts || "-"}`,
+    "",
+    file.content || "",
+  ];
+  memoryV3FilePane.textContent = lines.join("\n");
+}
+
 async function searchMemoryArchive() {
   try {
     const query = buildMemorySearchQuery();
@@ -390,6 +465,46 @@ async function refreshMemoryStats() {
     renderMemoryStats(payload);
   } catch (error) {
     memoryStatsPane.textContent = String(error);
+  }
+}
+
+async function refreshMemoryV3Status() {
+  try {
+    const payload = await api("/api/memory/v3/status");
+    renderMemoryV3Status(payload);
+  } catch (error) {
+    memoryV3Root.textContent = `root: ${String(error)}`;
+  }
+}
+
+async function searchMemoryV3() {
+  try {
+    const value = String(memoryV3SearchInput.value || "").trim();
+    const query = value ? `?q=${encodeURIComponent(value)}` : "";
+    const payload = await api(`/api/memory/v3/search${query}`);
+    renderMemoryV3Search(payload);
+    renderMemoryV3Status({ workspace: payload.workspace });
+  } catch (error) {
+    memoryV3SearchResults.replaceChildren();
+    const empty = document.createElement("div");
+    empty.className = "archive-empty";
+    empty.textContent = String(error);
+    memoryV3SearchResults.appendChild(empty);
+  }
+}
+
+async function openMemoryV3File(path = memoryV3PathInput.value) {
+  const value = String(path || "").trim();
+  if (!value) {
+    memoryV3FilePane.textContent = "Relative path is required.";
+    return;
+  }
+  try {
+    const payload = await api(`/api/memory/v3/file?path=${encodeURIComponent(value)}`);
+    memoryV3PathInput.value = value;
+    renderMemoryV3File(payload);
+  } catch (error) {
+    memoryV3FilePane.textContent = String(error);
   }
 }
 
@@ -602,6 +717,9 @@ document.getElementById("stopBtn").addEventListener("click", () => simplePost("/
 memorySearchBtn.addEventListener("click", () => searchMemoryArchive());
 memoryRunLoadBtn.addEventListener("click", () => loadMemoryRunDetail());
 memoryStatsBtn.addEventListener("click", () => refreshMemoryStats());
+memoryV3RefreshBtn.addEventListener("click", () => refreshMemoryV3Status());
+memoryV3SearchBtn.addEventListener("click", () => searchMemoryV3());
+memoryV3OpenBtn.addEventListener("click", () => openMemoryV3File());
 memorySearchResults.addEventListener("click", (event) => {
   const target = event.target;
   if (!(target instanceof HTMLElement)) {
@@ -612,6 +730,17 @@ memorySearchResults.addEventListener("click", (event) => {
     return;
   }
   loadMemoryRunDetail(runId);
+});
+memoryV3SearchResults.addEventListener("click", (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) {
+    return;
+  }
+  const path = target.dataset.v3Path;
+  if (!path) {
+    return;
+  }
+  openMemoryV3File(path);
 });
 thinkingScrollToggle.addEventListener("click", () => {
   thinkingAutoScroll = !thinkingAutoScroll;
@@ -639,6 +768,8 @@ async function init() {
   await refreshState();
   await refreshMemoryStats();
   await searchMemoryArchive();
+  await refreshMemoryV3Status();
+  await searchMemoryV3();
   setInterval(refreshStatus, 1000);
   setInterval(refreshState, 2000);
   setInterval(pollEvents, 700);

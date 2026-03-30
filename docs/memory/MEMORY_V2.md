@@ -78,7 +78,7 @@ V2 依赖 V1 已经成立：
 当前限制：
 
 - `turns/` 主要基于 V1 ledger 和 turn markers 重建
-- `battles/` / `rewards/` 目前是 Phase-1 摘要，字段还不完整
+- `battles/` / `rewards/` 目前仍未达到完整 replay 语义
 - 更深入的聚合统计和 lessons 仍未完成
 
 ## 4. 目录结构

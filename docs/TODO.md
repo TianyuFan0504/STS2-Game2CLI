@@ -48,6 +48,12 @@
 - 扩展跨局检索和更深入的经验聚合
 - 增加 lessons / strategy extraction
 
+### 6. Memory V3
+
+- 评估是否要增加前端直接编辑 `.md` 的能力
+- 评估是否要增加更强的 workspace 搜索/整理能力
+- 评估是否要把 lessons / strategy extraction 部分落到 V3
+
 ## 参考文档
 
 - [docs/memory/README.md](docs/memory/README.md)

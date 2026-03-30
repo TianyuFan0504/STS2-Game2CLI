@@ -64,6 +64,18 @@
 - 更新：
   - `memory/archive/index.sqlite`
 
+### 1.4 自由工作区层
+
+文件：
+
+- `agent-harness/frontend/memory_v3.py`
+
+职责：
+
+- 管理 `memory/globao_memory/`
+- 只把 `.md` 视为合法工作区文件
+- 提供工作区状态、搜索和文件读取能力
+
 ## 2. 总体数据流
 
 当前每轮 iteration 的主路径是：
@@ -83,6 +95,7 @@
 
 - V1 是“边跑边记”
 - V2 是“收官归档”
+- V3 是“自由笔记工作区”
 
 ## 3. V1 运行机制
 
@@ -674,6 +687,8 @@ V2 当前已经提供最小查询接口：
 - `derived/*.json`
 - `index.sqlite`
 
+但 V3 不是默认 prompt 注入内容；它是一个可按需读取的 Markdown 工作区，主要通过 `sts2-v3-workspace` skill 引导 agent 使用。
+
 ## 6. 当前还没做完的部分
 
 虽然现在 memory 已经能稳定运行，但还没有完全收尾。
@@ -685,6 +700,7 @@ V2 当前已经提供最小查询接口：
 - 更丰富的 deck / relic 语义提取
 - 更深入的聚合统计
 - 跨局 lesson 抽取
+- V3 的自动整理/抽取能力
 
 ## 7. 一句话总结
 
