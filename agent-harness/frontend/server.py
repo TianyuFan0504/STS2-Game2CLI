@@ -31,7 +31,7 @@ PI_PACKAGE_VERSION = "0.62.0"
 BASE_PROMPT_PATH = ROOT / "agent-harness" / "pi-agent" / "base-prompt.md"
 
 STS2_BIN = ROOT / "sts2"
-SKILL_PATH = ROOT / "agent-harness" / "skills" / "sts2-game-player"
+SKILL_PATH = ROOT / "agent-harness" / "skills"
 APPEND_PROMPT = ROOT / "agent-harness" / "pi-agent" / "append-system-prompt.md"
 ENV_FILE = ROOT / ".env"
 

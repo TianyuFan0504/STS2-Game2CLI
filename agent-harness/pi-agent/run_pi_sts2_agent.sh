@@ -6,7 +6,7 @@ STS2_REPO_BIN="$ROOT/sts2"
 PI_RUNTIME_ROOT="$ROOT/agent-harness/pi-agent/runtime"
 PI_SETUP_SCRIPT="$ROOT/agent-harness/pi-agent/setup_pi_agent.sh"
 BASE_PROMPT_FILE="$ROOT/agent-harness/pi-agent/base-prompt.md"
-SKILL_PATH="$ROOT/agent-harness/skills/sts2-game-player"
+SKILL_PATH="$ROOT/agent-harness/skills"
 APPEND_PROMPT_FILE="$ROOT/agent-harness/pi-agent/append-system-prompt.md"
 EVENT_PARSER="$ROOT/agent-harness/pi-agent/stream_pi_events.py"
 ENV_FILE="${STS2CLI_ENV_FILE:-$ROOT/.env}"
@@ -116,8 +116,13 @@ if [[ -z "$PI_BIN_RESOLVED" || ! -x "$PI_BIN_RESOLVED" ]]; then
   exit 1
 fi
 
-if [[ ! -f "$SKILL_PATH/SKILL.md" ]]; then
-  echo "[runner] pi skill not found at $SKILL_PATH" >&2
+if [[ ! -d "$SKILL_PATH" ]]; then
+  echo "[runner] pi skills directory not found at $SKILL_PATH" >&2
+  exit 1
+fi
+
+if [[ -z "$(find "$SKILL_PATH" -mindepth 2 -maxdepth 2 -name SKILL.md -print -quit)" ]]; then
+  echo "[runner] no skills found under $SKILL_PATH" >&2
   exit 1
 fi
 

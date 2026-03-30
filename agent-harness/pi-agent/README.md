@@ -16,8 +16,8 @@
   - 运行时追加给 pi 的系统提示，限制它只做游戏控制。
 - `../start_pi_game_agent.command`
   - macOS 双击启动入口。
-- `../skills/sts2-game-player/`
-  - 本仓库内的本地 gameplay skill。
+- `../skills/`
+  - 本仓库内的本地 skills 目录，runner 会默认把整个目录作为 skill 加载路径。
 
 ## 前提
 
@@ -103,7 +103,7 @@ runner 不通过 `npx` 临时下载，也不再走 `pi-mono` 的源码入口。
 - 初始 prompt 主体见 `agent-harness/pi-agent/base-prompt.md`
 - 系统层追加规则见 `agent-harness/pi-agent/append-system-prompt.md`
 
-这样可以在项目内固定 `pi` 版本，同时保留当前 `STS2CLI/` 工作目录、skill 路径和日志布局。
+这样可以在项目内固定 `pi` 版本，同时保留当前 `STS2CLI/` 工作目录、skills 目录路径和日志布局。
 
 `sts2` 的解析顺序现在是：
 
