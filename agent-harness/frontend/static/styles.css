@@ -155,6 +155,14 @@ button.active {
   padding: 18px;
 }
 
+.insights-grid {
+  grid-template-columns: 1fr 1fr;
+}
+
+.insights-card {
+  padding: 18px;
+}
+
 h2 {
   margin: 0 0 14px;
   font-size: 18px;
@@ -225,6 +233,35 @@ h2 {
   max-height: 320px;
   overflow: auto;
   white-space: pre-wrap;
+}
+
+.insights-pane {
+  margin-top: 12px;
+  min-height: 180px;
+  max-height: 300px;
+}
+
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 11px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.76);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.tag-chip.muted {
+  color: var(--ink-soft);
 }
 
 .streams {
@@ -331,6 +368,14 @@ h2 {
   background: #5e54a4;
 }
 
+.timeline-item.skill::before {
+  background: #2d5ea8;
+}
+
+.timeline-item.memory::before {
+  background: #2f7c47;
+}
+
 .timeline-meta {
   display: flex;
   align-items: center;
@@ -399,6 +444,16 @@ h2 {
 .timeline-badge.tool {
   background: rgba(94, 84, 164, 0.16);
   color: #4f4592;
+}
+
+.timeline-badge.skill {
+  background: rgba(45, 94, 168, 0.16);
+  color: #254f8d;
+}
+
+.timeline-badge.memory {
+  background: rgba(47, 124, 71, 0.16);
+  color: #25603a;
 }
 
 .timeline-text {

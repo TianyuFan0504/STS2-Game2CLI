@@ -34,6 +34,8 @@ STS2_BIN = ROOT / "sts2"
 SKILL_PATH = ROOT / "agent-harness" / "skills"
 APPEND_PROMPT = ROOT / "agent-harness" / "pi-agent" / "append-system-prompt.md"
 ENV_FILE = ROOT / ".env"
+MEMORY_ROOT = ROOT / "memory"
+MEMORY_SKILL_NAME = "sts2-v2-memory"
 
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -181,6 +183,109 @@ def resolve_sts2_bin(env: dict[str, str]) -> str:
     return resolved or str(STS2_BIN)
 
 
+def _strip_quotes(text: str) -> str:
+    value = text.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+        return value[1:-1]
+    return value
+
+
+def discover_skills(skill_root: Path) -> list[dict[str, str]]:
+    if not skill_root.exists():
+        return []
+    skill_files = []
+    if skill_root.is_file() and skill_root.name == "SKILL.md":
+        skill_files = [skill_root]
+    elif skill_root.is_dir():
+        skill_files = sorted(skill_root.rglob("SKILL.md"))
+    skills: list[dict[str, str]] = []
+    for skill_file in skill_files:
+        name = skill_file.parent.name
+        description = ""
+        try:
+            lines = skill_file.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            lines = []
+        if lines and lines[0].strip() == "---":
+            for raw_line in lines[1:]:
+                line = raw_line.strip()
+                if line == "---":
+                    break
+                if line.startswith("name:"):
+                    name = _strip_quotes(line.split(":", 1)[1])
+                elif line.startswith("description:"):
+                    description = _strip_quotes(line.split(":", 1)[1])
+        skills.append(
+            {
+                "name": name,
+                "description": description,
+                "path": str(skill_file),
+                "base_dir": str(skill_file.parent),
+            }
+        )
+    return skills
+
+
+def path_is_within(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+        return True
+    except ValueError:
+        return False
+    except OSError:
+        return False
+
+
+def extract_tool_args(data: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(data, dict):
+        return None
+    args = data.get("args")
+    return args if isinstance(args, dict) else None
+
+
+def extract_read_path(data: dict[str, Any] | None) -> Path | None:
+    if not isinstance(data, dict) or str(data.get("toolName") or "") != "read":
+        return None
+    args = extract_tool_args(data)
+    if not isinstance(args, dict):
+        return None
+    candidate = args.get("path") or args.get("file_path")
+    if not isinstance(candidate, str) or not candidate.strip():
+        return None
+    path = Path(candidate).expanduser()
+    if not path.is_absolute():
+        path = (ROOT / path).resolve()
+    return path
+
+
+def summarize_preview(text: str, limit: int = 800) -> str:
+    compact = text.strip()
+    if len(compact) <= limit:
+        return compact
+    return compact[: limit - 3] + "..."
+
+
+def classify_memory_target(path: str | None = None, command: str | None = None) -> str:
+    candidate = (path or command or "").replace("\\", "/").lower()
+    if not candidate:
+        return "memory"
+    if "index.sqlite" in candidate or "sqlite3 " in candidate:
+        return "sqlite"
+    if "/turns/" in candidate:
+        return "turns"
+    if "/rewards/" in candidate:
+        return "rewards"
+    if "/battles/" in candidate:
+        return "battles"
+    if "/derived/" in candidate:
+        return "derived"
+    if "/memory/summary.md" in candidate or candidate.endswith("/summary.md"):
+        return "summary"
+    if "/data/" in candidate or any(token in candidate for token in ("events.jsonl", "ledger.jsonl", "session.json", "state_snapshot.json")):
+        return "data"
+    return "memory"
+
+
 @dataclass
 class ParsedPiEvent:
     kind: str
@@ -315,6 +420,10 @@ class AgentController:
         self._current_iteration: int | None = None
         self._tracked_state_summary: dict[str, Any] | None = None
         self._last_reported_sts2_bin: str | None = None
+        self._loaded_skills = discover_skills(SKILL_PATH)
+        self._recent_skill_invocations: deque[dict[str, Any]] = deque(maxlen=30)
+        self._recent_memory_fetches: deque[dict[str, Any]] = deque(maxlen=20)
+        self._skills_used_this_iteration: set[str] = set()
         self._memory = MemoryV1Store(ROOT / "memory")
 
     def snapshot(self) -> dict[str, Any]:
@@ -342,6 +451,21 @@ class AgentController:
                 "latest_event_id": self._events.latest_id(),
                 "memory": memory_info,
                 "memory_summary": self._memory.get_visible_summary(),
+                "skills": {
+                    "root": str(SKILL_PATH),
+                    "loaded": [
+                        {
+                            "name": skill["name"],
+                            "description": skill["description"],
+                            "path": skill["path"],
+                        }
+                        for skill in self._loaded_skills
+                    ],
+                    "recent_invocations": list(self._recent_skill_invocations),
+                },
+                "memory_fetches": {
+                    "items": list(self._recent_memory_fetches),
+                },
             }
 
     def list_events(self, after: int) -> list[dict[str, Any]]:
@@ -370,6 +494,7 @@ class AgentController:
             if self._thread is not None and self._thread.is_alive():
                 raise RuntimeError("Agent is already running")
 
+            self._loaded_skills = discover_skills(SKILL_PATH)
             self._stop_requested = False
             self._pause_requested = False
             self._resume_mode = mode if mode != "single" else "full_auto"
@@ -382,6 +507,7 @@ class AgentController:
             self._tool_commands.clear()
             self._recent_commands.clear()
             self._tracked_state_summary = None
+            self._skills_used_this_iteration = set()
             self._session_dir = self._create_session_dir()
             self._events.append("runner", f"Start mode: {mode}")
             self._thread = threading.Thread(target=self._worker, args=(mode,), daemon=True)
@@ -475,6 +601,7 @@ class AgentController:
                     self._live_output = ""
                     self._active_tools.clear()
                     self._tool_commands.clear()
+                    self._skills_used_this_iteration = set()
                     self._mode = f"running_{mode}"
 
                 exit_code = self._run_one_iteration(iteration, mode)
@@ -713,9 +840,58 @@ class AgentController:
             pass
         return target
 
+    def _match_skill_for_path(self, path: Path) -> dict[str, str] | None:
+        for skill in self._loaded_skills:
+            base_dir = Path(skill["base_dir"])
+            if path_is_within(path, base_dir):
+                return skill
+        return None
+
+    def _record_skill_invocation(self, skill: dict[str, str], *, path: Path) -> None:
+        skill_name = skill["name"]
+        self._skills_used_this_iteration.add(skill_name)
+        item = {
+            "ts": time.time(),
+            "iteration": self._current_iteration,
+            "skill_name": skill_name,
+            "path": str(path),
+            "description": skill.get("description", ""),
+        }
+        self._recent_skill_invocations.appendleft(item)
+        self._events.append("skill", f"{skill_name} read from {path.name}", item)
+
+    def _record_memory_fetch(
+        self,
+        *,
+        source: str,
+        label: str,
+        path: str | None = None,
+        command: str | None = None,
+        preview: str = "",
+    ) -> None:
+        category = classify_memory_target(path=path, command=command)
+        item = {
+            "ts": time.time(),
+            "iteration": self._current_iteration,
+            "source": source,
+            "label": label,
+            "category": category,
+            "path": path,
+            "command": command,
+            "preview": summarize_preview(preview),
+            "via_memory_skill": MEMORY_SKILL_NAME in self._skills_used_this_iteration,
+        }
+        self._recent_memory_fetches.appendleft(item)
+        timeline_text = f"[{category}] {label}"
+        if path:
+            timeline_text += f" [{Path(path).name}]"
+        self._events.append("memory_fetch", timeline_text, item)
+
     def _record_pi_event(self, event: ParsedPiEvent, text_file: Any) -> None:
         tool_call_id = str(event.data.get("toolCallId") or "")
+        tool_name = str(event.data.get("toolName") or "")
         shell_command = extract_bash_command(event.data)
+        read_path = extract_read_path(event.data)
         if event.kind == "tool_start" and tool_call_id and shell_command:
             self._tool_commands[tool_call_id] = shell_command
         elif not shell_command and tool_call_id:
@@ -753,6 +929,30 @@ class AgentController:
                     deferred = self._memory.ensure_run_from_command(command_text, source="agent", result=event.text)
                     if not deferred:
                         self._memory.record_command(command_text, result=event.text, source="agent")
+            if event.kind == "tool_end" and tool_name == "read" and read_path is not None:
+                skill = self._match_skill_for_path(read_path)
+                if skill is not None:
+                    self._record_skill_invocation(skill, path=read_path)
+                if path_is_within(read_path, MEMORY_ROOT):
+                    self._record_memory_fetch(
+                        source="read",
+                        label="Read memory file",
+                        path=str(read_path),
+                        preview=result_text,
+                    )
+            if (
+                event.kind == "tool_end"
+                and tool_name == "bash"
+                and shell_command
+                and ("memory/" in shell_command or "index.sqlite" in shell_command)
+            ):
+                label = "Queried memory archive" if "sqlite3" in shell_command else "Read memory via bash"
+                self._record_memory_fetch(
+                    source="bash",
+                    label=label,
+                    command=shell_command,
+                    preview=result_text,
+                )
             if has_sts2_subcommand(shell_command, "state"):
                 parsed_state = parse_sts2_state_output(result_text)
                 if parsed_state is not None:

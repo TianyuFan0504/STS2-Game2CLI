@@ -24,6 +24,14 @@ const statePane = document.getElementById("statePane");
 const memoryRunId = document.getElementById("memoryRunId");
 const memorySummaryPath = document.getElementById("memorySummaryPath");
 const memorySummaryPane = document.getElementById("memorySummaryPane");
+const skillsRoot = document.getElementById("skillsRoot");
+const skillsCount = document.getElementById("skillsCount");
+const skillsLoadedList = document.getElementById("skillsLoadedList");
+const skillsActivityPane = document.getElementById("skillsActivityPane");
+const memoryFetchCount = document.getElementById("memoryFetchCount");
+const memoryFetchHint = document.getElementById("memoryFetchHint");
+const memoryFetchCategories = document.getElementById("memoryFetchCategories");
+const memoryFetchPane = document.getElementById("memoryFetchPane");
 
 let lastEventId = 0;
 let stateCache = null;
@@ -58,6 +66,13 @@ function appendPane(pre, text, maxLines = 400, { autoScroll = true } = {}) {
 
 function appendCommandLine(text) {
   appendPane(commandPane, `${text}\n`, 300);
+}
+
+function formatClock(ts) {
+  if (!ts) {
+    return "--:--:--";
+  }
+  return new Date(ts * 1000).toLocaleTimeString();
 }
 
 function formatDisplayPath(path) {
@@ -114,6 +129,91 @@ function syncWarningToggle() {
   document.body.classList.toggle("warnings-hidden", !showWarnings);
 }
 
+function renderSkills(status) {
+  const skills = status.skills || {};
+  const loaded = Array.isArray(skills.loaded) ? skills.loaded : [];
+  const invocations = Array.isArray(skills.recent_invocations) ? skills.recent_invocations : [];
+  skillsRoot.textContent = `root: ${formatDisplayPath(skills.root)}`;
+  skillsCount.textContent = `loaded: ${loaded.length}`;
+
+  skillsLoadedList.replaceChildren();
+  for (const skill of loaded) {
+    const chip = document.createElement("span");
+    chip.className = "tag-chip";
+    chip.textContent = skill.name || "(unnamed)";
+    chip.title = skill.description || skill.path || "";
+    skillsLoadedList.appendChild(chip);
+  }
+  if (loaded.length === 0) {
+    const chip = document.createElement("span");
+    chip.className = "tag-chip muted";
+    chip.textContent = "No skills discovered";
+    skillsLoadedList.appendChild(chip);
+  }
+
+  if (invocations.length === 0) {
+    skillsActivityPane.textContent = "No skill reads detected yet.";
+    return;
+  }
+  skillsActivityPane.textContent = invocations
+    .map((item) => `[${formatClock(item.ts)}] ${item.skill_name} -> ${formatDisplayPath(item.path)}`)
+    .join("\n");
+}
+
+function renderMemoryFetches(status) {
+  const fetches = status.memory_fetches?.items || [];
+  memoryFetchCount.textContent = `fetches: ${fetches.length}`;
+  memoryFetchHint.textContent = fetches.some((item) => item.via_memory_skill)
+    ? "memory skill: active"
+    : "memory skill: idle";
+  const categoryCounts = new Map();
+  for (const item of fetches) {
+    const category = item.category || "memory";
+    categoryCounts.set(category, (categoryCounts.get(category) || 0) + 1);
+  }
+  memoryFetchCategories.replaceChildren();
+  const sortedCategories = Array.from(categoryCounts.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  for (const [category, count] of sortedCategories) {
+    const chip = document.createElement("span");
+    chip.className = "tag-chip";
+    chip.textContent = `${category}: ${count}`;
+    memoryFetchCategories.appendChild(chip);
+  }
+  if (sortedCategories.length === 0) {
+    const chip = document.createElement("span");
+    chip.className = "tag-chip muted";
+    chip.textContent = "No categories yet";
+    memoryFetchCategories.appendChild(chip);
+  }
+  if (fetches.length === 0) {
+    memoryFetchPane.textContent = "No memory fetched yet.";
+    return;
+  }
+  const groups = new Map();
+  for (const item of fetches) {
+    const category = item.category || "memory";
+    if (!groups.has(category)) {
+      groups.set(category, []);
+    }
+    groups.get(category).push(item);
+  }
+  const sections = Array.from(groups.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([category, items]) => {
+      const body = items
+        .map((item) => {
+          const source = item.source || "unknown";
+          const where = item.path ? formatDisplayPath(item.path) : item.command || "-";
+          const via = item.via_memory_skill ? " [via memory skill]" : "";
+          const preview = item.preview?.trim() || "(no preview)";
+          return `[${formatClock(item.ts)}] ${source}: ${item.label}${via}\n${where}\n${preview}`;
+        })
+        .join("\n\n");
+      return `## ${category}\n${body}`;
+    });
+  memoryFetchPane.textContent = sections.join("\n\n");
+}
+
 function updateSummary(status) {
   statusCache = status;
   agentStatus.textContent = status.status;
@@ -133,6 +233,8 @@ function updateSummary(status) {
   memoryRunId.textContent = `run: ${memorySummary?.run_id || memoryInfo?.run_id || "-"}`;
   memorySummaryPath.textContent = `summary: ${formatDisplayPath(memorySummary?.path)}`;
   memorySummaryPane.textContent = memorySummary?.content?.trim() || "No run summary yet.";
+  renderSkills(status);
+  renderMemoryFetches(status);
   renderButtonState();
 }
 
@@ -210,6 +312,10 @@ function formatSystemEvent(timeLabel, event) {
       return { time: timeLabel, label: "GOLD", text: event.text, tone: "gold" };
     case "runner":
       return { time: timeLabel, label: "RUNNER", text: event.text, tone: "runner" };
+    case "skill":
+      return { time: timeLabel, label: "SKILL", text: event.text, tone: "skill" };
+    case "memory_fetch":
+      return { time: timeLabel, label: "MEMORY", text: event.text, tone: "memory" };
     case "error":
     case "manual_error":
     case "state_error":

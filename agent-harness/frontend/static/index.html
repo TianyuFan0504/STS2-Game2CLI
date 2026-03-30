@@ -72,6 +72,32 @@
         </div>
       </section>
 
+      <section class="dashboard insights-grid">
+        <div class="card insights-card">
+          <div class="memory-header">
+            <h2>Loaded Skills</h2>
+            <div class="memory-meta">
+              <span id="skillsRoot">root: -</span>
+              <span id="skillsCount">loaded: -</span>
+            </div>
+          </div>
+          <div id="skillsLoadedList" class="tag-list"></div>
+          <pre id="skillsActivityPane" class="mono insights-pane"></pre>
+        </div>
+
+        <div class="card insights-card">
+          <div class="memory-header">
+            <h2>Memory Fetches</h2>
+            <div class="memory-meta">
+              <span id="memoryFetchCount">fetches: -</span>
+              <span id="memoryFetchHint">memory skill: -</span>
+            </div>
+          </div>
+          <div id="memoryFetchCategories" class="tag-list"></div>
+          <pre id="memoryFetchPane" class="mono insights-pane"></pre>
+        </div>
+      </section>
+
       <section class="streams">
         <div class="card panel">
           <div class="panel-header">
